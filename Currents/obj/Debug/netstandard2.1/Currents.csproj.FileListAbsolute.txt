@@ -1,0 +1,9 @@
+D:\git\Currents\Currents\bin\Debug\netstandard2.1\Currents.deps.json
+D:\git\Currents\Currents\bin\Debug\netstandard2.1\Currents.dll
+D:\git\Currents\Currents\bin\Debug\netstandard2.1\Currents.pdb
+D:\git\Currents\Currents\obj\Debug\netstandard2.1\Currents.GeneratedMSBuildEditorConfig.editorconfig
+D:\git\Currents\Currents\obj\Debug\netstandard2.1\Currents.AssemblyInfoInputs.cache
+D:\git\Currents\Currents\obj\Debug\netstandard2.1\Currents.AssemblyInfo.cs
+D:\git\Currents\Currents\obj\Debug\netstandard2.1\Currents.csproj.CoreCompileInputs.cache
+D:\git\Currents\Currents\obj\Debug\netstandard2.1\Currents.dll
+D:\git\Currents\Currents\obj\Debug\netstandard2.1\Currents.pdb
