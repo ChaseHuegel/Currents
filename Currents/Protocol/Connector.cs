@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
@@ -52,22 +53,23 @@ internal class Connector : IDisposable
             remoteEndPoint.Address = remoteEndPoint.Address.MapToIPv6();
         }
 
-        byte[] buffer = _syn.Serialize();
-        _channel.Send(buffer, remoteEndPoint);
+        var synSegment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, _syn.GetSize());
+        _syn.SerializeInto(synSegment.Array, synSegment.Offset);
+        _channel.Send(synSegment, remoteEndPoint);
 
         bool retransmit = true;
-        Task.Run(() => Retransmit(buffer, remoteEndPoint));
-        async Task Retransmit(byte[] data, IPEndPoint endPoint)
+        Task.Run(Retransmit);
+        async Task Retransmit()
         {
             while (retransmit)
             {
-                await Task.Delay(100);
-                _channel.Send(data, endPoint);
+                await Task.Delay(50);
+                _channel.Send(synSegment, remoteEndPoint);
                 ConnectionAttempts++;
             }
         }
 
-        DataReceivedEvent recvEvent = RecvFrom(remoteEndPoint);
+        RecvEvent recvEvent = RecvFrom(remoteEndPoint);
         using (recvEvent.Data)
         {
             Syn remoteSyn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
@@ -91,7 +93,7 @@ internal class Connector : IDisposable
         _channel.Open();
         while (true)
         {
-            DataReceivedEvent recvEvent = _channel.Consume();
+            RecvEvent recvEvent = _channel.Consume();
             using (recvEvent.Data)
             {
                 Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
@@ -106,18 +108,20 @@ internal class Connector : IDisposable
                         _connections.Add(connection);
                     }
 
-                    _channel.Send(syn.Serialize(), connection);
+                    var segment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, syn.GetSize());
+                    syn.SerializeInto(segment.Array, segment.Offset);
+                    _channel.Send(segment, connection);
                     return;
                 }
             }
         }
     }
 
-    private DataReceivedEvent RecvFrom(IPEndPoint targetEndPoint)
+    private RecvEvent RecvFrom(IPEndPoint targetEndPoint)
     {
         while (true)
         {
-            DataReceivedEvent recvEvent = _channel.Consume();
+            RecvEvent recvEvent = _channel.Consume();
             if (targetEndPoint.Equals(recvEvent.EndPoint))
             {
                 return recvEvent;
