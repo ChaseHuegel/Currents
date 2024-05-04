@@ -10,6 +10,7 @@ internal class Connector : IDisposable
 
     private Socket _socket;
     private Syn _syn;
+    private readonly List<Connection> _connections = [];
 
     private Connector(bool ipv6Only)
     {
@@ -47,6 +48,9 @@ internal class Connector : IDisposable
         _socket.Bind(localEndPoint);
     }
 
+    public int ConnectionAttempts = 1;
+    public bool Connected = false;
+
     public bool Connect(IPEndPoint remoteEndPoint)
     {
         if (remoteEndPoint.AddressFamily == AddressFamily.InterNetwork)
@@ -57,17 +61,32 @@ internal class Connector : IDisposable
         byte[] buffer = _syn.Serialize();
         _socket.SendTo(buffer, remoteEndPoint);
 
-        buffer = new byte[256];
-        ArraySegment<byte> recvBytes = RecvFrom(buffer, remoteEndPoint);
+        bool retransmit = true;
+        Task.Run(() => Retransmit(buffer, remoteEndPoint));
+        async Task Retransmit(byte[] data, IPEndPoint endPoint)
+        {
+            while (retransmit)
+            {
+                await Task.Delay(100);
+                _socket.SendTo(data, endPoint);
+                ConnectionAttempts++;
+            }
+        }
+
+        var recvBuffer = new byte[256];
+        ArraySegment<byte> recvBytes = RecvFrom(recvBuffer, remoteEndPoint);
         Syn remoteSyn = Syn.Deserialize(recvBytes.Array, recvBytes.Offset, recvBytes.Count);
 
         if ((remoteSyn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
         {
             //  TODO validate and accept or decline the syn
             _syn = remoteSyn;
+            retransmit = false;
+            Connected = true;
             return true;
         }
 
+        retransmit = false;
         return false;
     }
 
@@ -78,12 +97,19 @@ internal class Connector : IDisposable
         while (true)
         {
             ArraySegment<byte> recvBytes = Recv(buffer, ref remoteEndPoint);
+            Connection connection = (IPEndPoint)remoteEndPoint;
+
             Syn syn = Syn.Deserialize(recvBytes.Array, recvBytes.Offset, recvBytes.Count);
 
             if ((syn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
             {
                 //  TODO validate and choose to accept or decline the syn
-                _socket.SendTo(syn.Serialize(), remoteEndPoint);
+                if (!_connections.Contains(connection))
+                {
+                    _connections.Add(connection);
+                }
+
+                _socket.SendTo(syn.Serialize(), connection);
                 return;
             }
         }
