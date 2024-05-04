@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using Currents.Protocol.Packets;
 
@@ -6,46 +7,37 @@ namespace Currents.Protocol;
 
 internal class Connector : IDisposable
 {
-    public Socket Socket => _socket;
+    public Channel Channel => _channel;
 
-    private Socket _socket;
+    private Channel _channel;
     private Syn _syn;
     private readonly List<Connection> _connections = [];
 
-    private Connector(bool ipv6Only)
+    public Connector()
     {
-        _socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-        _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, ipv6Only);
-    }
-
-    public Connector() : this(ipv6Only: false)
-    {
+        _channel = new Channel();
         _syn = Packets.Packets.NewSyn();
     }
 
     public Connector(IPEndPoint localEndPoint) : this()
     {
-        Bind(localEndPoint);
+        _channel.Bind(localEndPoint);
     }
 
-    public Connector(ConnectionParameters connectionParameters) : this(ipv6Only: false)
+    public Connector(ConnectionParameters connectionParameters)
     {
+        _channel = new Channel();
         _syn = Packets.Packets.NewSyn(connectionParameters);
     }
 
     public Connector(IPEndPoint localEndPoint, ConnectionParameters connectionParameters) : this(connectionParameters)
     {
-        Bind(localEndPoint);
+        _channel.Bind(localEndPoint);
     }
 
     public void Dispose()
     {
-        _socket.Dispose();
-    }
-
-    public void Bind(IPEndPoint localEndPoint)
-    {
-        _socket.Bind(localEndPoint);
+        _channel.Dispose();
     }
 
     public int ConnectionAttempts = 1;
@@ -53,13 +45,15 @@ internal class Connector : IDisposable
 
     public bool Connect(IPEndPoint remoteEndPoint)
     {
+        _channel.Open();
+
         if (remoteEndPoint.AddressFamily == AddressFamily.InterNetwork)
         {
             remoteEndPoint.Address = remoteEndPoint.Address.MapToIPv6();
         }
 
         byte[] buffer = _syn.Serialize();
-        _socket.SendTo(buffer, remoteEndPoint);
+        _channel.Socket.SendTo(buffer, remoteEndPoint);
 
         bool retransmit = true;
         Task.Run(() => Retransmit(buffer, remoteEndPoint));
@@ -68,22 +62,24 @@ internal class Connector : IDisposable
             while (retransmit)
             {
                 await Task.Delay(100);
-                _socket.SendTo(data, endPoint);
+                _channel.Socket.SendTo(data, endPoint);
                 ConnectionAttempts++;
             }
         }
 
-        var recvBuffer = new byte[256];
-        ArraySegment<byte> recvBytes = RecvFrom(recvBuffer, remoteEndPoint);
-        Syn remoteSyn = Syn.Deserialize(recvBytes.Array, recvBytes.Offset, recvBytes.Count);
-
-        if ((remoteSyn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
+        DataReceivedEvent recvEvent = RecvFrom(remoteEndPoint);
+        using (recvEvent.Data)
         {
-            //  TODO validate and accept or decline the syn
-            _syn = remoteSyn;
-            retransmit = false;
-            Connected = true;
-            return true;
+            Syn remoteSyn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+
+            if ((remoteSyn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
+            {
+                //  TODO validate and accept or decline the syn
+                _syn = remoteSyn;
+                retransmit = false;
+                Connected = true;
+                return true;
+            }
         }
 
         retransmit = false;
@@ -92,52 +88,39 @@ internal class Connector : IDisposable
 
     public void Accept()
     {
-        EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
-        byte[] buffer = new byte[256];
+        _channel.Open();
         while (true)
         {
-            ArraySegment<byte> recvBytes = Recv(buffer, ref remoteEndPoint);
-            Connection connection = (IPEndPoint)remoteEndPoint;
-
-            Syn syn = Syn.Deserialize(recvBytes.Array, recvBytes.Offset, recvBytes.Count);
-
-            if ((syn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
+            DataReceivedEvent recvEvent = _channel.Consume();
+            using (recvEvent.Data)
             {
-                //  TODO validate and choose to accept or decline the syn
-                if (!_connections.Contains(connection))
+                Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+
+                if ((syn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
                 {
-                    _connections.Add(connection);
+                    var connection = new Connection(recvEvent.EndPoint);
+
+                    //  TODO validate and choose to accept or decline the syn
+                    if (!_connections.Contains(connection))
+                    {
+                        _connections.Add(connection);
+                    }
+
+                    _channel.Socket.SendTo(syn.Serialize(), connection);
+                    return;
                 }
-
-                _socket.SendTo(syn.Serialize(), connection);
-                return;
             }
         }
     }
 
-    private ArraySegment<byte> Recv(ArraySegment<byte> buffer, ref EndPoint remoteEndPoint)
+    private DataReceivedEvent RecvFrom(IPEndPoint targetEndPoint)
     {
         while (true)
         {
-            int bytesRec = _socket.ReceiveFrom(buffer.Array, buffer.Offset, buffer.Count, SocketFlags.None, ref remoteEndPoint);
-
-            if (bytesRec > 0)
+            DataReceivedEvent recvEvent = _channel.Consume();
+            if (targetEndPoint.Equals(recvEvent.EndPoint))
             {
-                return new ArraySegment<byte>(buffer.Array, buffer.Offset, bytesRec);
-            }
-        }
-    }
-
-    private ArraySegment<byte> RecvFrom(ArraySegment<byte> buffer, IPEndPoint targetEndPoint)
-    {
-        EndPoint endPoint = new IPEndPoint(IPAddress.Any, 0);
-        while (true)
-        {
-            int bytesRec = _socket.ReceiveFrom(buffer.Array, buffer.Offset, buffer.Count, SocketFlags.None, ref endPoint);
-
-            if (targetEndPoint.Equals(endPoint) && bytesRec > 0)
-            {
-                return new ArraySegment<byte>(buffer.Array, buffer.Offset, bytesRec);
+                return recvEvent;
             }
         }
     }

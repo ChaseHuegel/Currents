@@ -53,6 +53,9 @@ public class ConnectorTests
     [TestCase(5)]
     [TestCase(10)]
     [TestCase(50)]
+    [TestCase(100)]
+    [TestCase(200)]
+    [TestCase(500)]
     public async Task Accept_ManySimultaneous_Succeeds(int connections)
     {
         using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
@@ -78,6 +81,7 @@ public class ConnectorTests
             Task ConnectClient()
             {
                 bool connected = client.Connect(new IPEndPoint(IPAddress.Loopback, 4321));
+                client.Dispose();
                 if (connected) {
                     connectedClients++;
                 }
@@ -94,8 +98,7 @@ public class ConnectorTests
 
         foreach (var client in clients)
         {
-            Console.WriteLine($"{client.Socket.LocalEndPoint} made {client.ConnectionAttempts} connection attempts. Success? {client.Connected}");
-            client.Dispose();
+            Console.WriteLine($"{client.Channel.LocalEndPoint} made {client.ConnectionAttempts} connection attempts. Success? {client.Connected}");
         }
 
         Assert.That(connectedClients, Is.EqualTo(connections));
