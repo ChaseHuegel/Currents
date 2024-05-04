@@ -12,7 +12,6 @@ internal class Channel : IDisposable
         public bool IPv6Only = false;
     }
 
-    public Socket Socket => _socket;
     public IPEndPoint LocalEndPoint => _localEndPoint;
     public IPEndPoint RemoteEndPoint => _remoteEndPoint;
 
@@ -91,6 +90,16 @@ internal class Channel : IDisposable
 
             _open = false;
         }
+    }
+
+    public void Send(byte[] buffer, IPEndPoint endPoint)
+    {
+        Send(buffer, 0, buffer.Length, endPoint);
+    }
+
+    public void Send(byte[] buffer, int offset, int count, IPEndPoint endPoint)
+    {
+        _socket.SendTo(buffer, offset, count, SocketFlags.None, endPoint);
     }
 
     public DataReceivedEvent Consume(int timeoutMs = Timeout.Infinite)

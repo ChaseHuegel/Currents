@@ -53,7 +53,7 @@ internal class Connector : IDisposable
         }
 
         byte[] buffer = _syn.Serialize();
-        _channel.Socket.SendTo(buffer, remoteEndPoint);
+        _channel.Send(buffer, remoteEndPoint);
 
         bool retransmit = true;
         Task.Run(() => Retransmit(buffer, remoteEndPoint));
@@ -62,7 +62,7 @@ internal class Connector : IDisposable
             while (retransmit)
             {
                 await Task.Delay(100);
-                _channel.Socket.SendTo(data, endPoint);
+                _channel.Send(data, endPoint);
                 ConnectionAttempts++;
             }
         }
@@ -106,7 +106,7 @@ internal class Connector : IDisposable
                         _connections.Add(connection);
                     }
 
-                    _channel.Socket.SendTo(syn.Serialize(), connection);
+                    _channel.Send(syn.Serialize(), connection);
                     return;
                 }
             }
