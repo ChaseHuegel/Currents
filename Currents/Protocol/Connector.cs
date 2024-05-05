@@ -9,6 +9,8 @@ namespace Currents.Protocol;
 internal class Connector : IDisposable
 {
     public Channel Channel => _channel;
+    public int ConnectionAttempts { get; private set; }
+    public bool Connected { get; private set; }
 
     private Channel _channel;
     private Syn _syn;
@@ -41,8 +43,10 @@ internal class Connector : IDisposable
         _channel.Dispose();
     }
 
-    public int ConnectionAttempts = 1;
-    public bool Connected = false;
+    public void Close()
+    {
+        _channel.Close();
+    }
 
     public bool Connect(IPEndPoint remoteEndPoint)
     {
@@ -56,6 +60,7 @@ internal class Connector : IDisposable
         var synSegment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, _syn.GetSize());
         _syn.SerializeInto(synSegment.Array, synSegment.Offset);
         _channel.Send(synSegment, remoteEndPoint);
+        ConnectionAttempts = 1;
 
         bool retransmit = true;
         Task.Run(Retransmit);
@@ -69,7 +74,7 @@ internal class Connector : IDisposable
             }
         }
 
-        RecvEvent recvEvent = RecvFrom(remoteEndPoint);
+        RecvEvent recvEvent = _channel.ConsumeFrom(remoteEndPoint);
         using (recvEvent.Data)
         {
             Syn remoteSyn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
@@ -91,6 +96,7 @@ internal class Connector : IDisposable
     public void Accept()
     {
         _channel.Open();
+
         while (true)
         {
             RecvEvent recvEvent = _channel.Consume();
@@ -113,18 +119,6 @@ internal class Connector : IDisposable
                     _channel.Send(segment, connection);
                     return;
                 }
-            }
-        }
-    }
-
-    private RecvEvent RecvFrom(IPEndPoint targetEndPoint)
-    {
-        while (true)
-        {
-            RecvEvent recvEvent = _channel.Consume();
-            if (targetEndPoint.Equals(recvEvent.EndPoint))
-            {
-                return recvEvent;
             }
         }
     }

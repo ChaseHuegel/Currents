@@ -6,9 +6,50 @@ namespace Currents.Tests.Protocol;
 
 public class ConnectorTests
 {
-    [SetUp]
-    public void Setup()
+    [Test]
+    [Timeout(5000)]
+    public async Task Close_Succeeds()
     {
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+
+        _ = Task.Run(AcceptConnection);
+        Task AcceptConnection()
+        {
+            server.Accept();
+            return Task.CompletedTask;
+        }
+
+        await Task.Delay(5);
+        server.Close();
+
+        Assert.That(server.Channel.IsOpen, Is.False);
+    }
+
+    [Test]
+    [Timeout(5000)]
+    public async Task Connect_AfterReopen_Succeeds()
+    {
+        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0));
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+
+        _ = Task.Run(AcceptConnection);
+        await Task.Delay(5);
+        server.Close();
+        Assert.That(server.Channel.IsOpen, Is.False);
+
+        _ = Task.Run(AcceptConnection);
+        await Task.Delay(5);
+        Assert.That(server.Channel.IsOpen, Is.True);
+
+        bool connected = client.Connect(new IPEndPoint(IPAddress.Loopback, 4321));
+
+        Assert.That(connected, Is.True);
+
+        Task AcceptConnection()
+        {
+            server.Accept();
+            return Task.CompletedTask;
+        }
     }
 
     [Test]

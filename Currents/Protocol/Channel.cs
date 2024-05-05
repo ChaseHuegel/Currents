@@ -14,6 +14,16 @@ internal class Channel : IDisposable
 
     public IPEndPoint LocalEndPoint => _localEndPoint;
     public IPEndPoint RemoteEndPoint => _remoteEndPoint;
+    public bool IsOpen
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _open;
+            }
+        }
+    }
 
     private IPEndPoint _localEndPoint;
     private IPEndPoint _remoteEndPoint;
@@ -33,11 +43,13 @@ internal class Channel : IDisposable
 
     private readonly Socket _socket;
     private readonly RecvEvent?[] _recvQueue;
-    private readonly AutoResetEvent _recvHandle = new(false);
+    private readonly AutoResetEvent _recvSignal = new(false);
     private readonly byte[] _recvBuffer = new byte[ushort.MaxValue];
     private readonly SendEvent?[] _sendQueue;
-    private readonly AutoResetEvent _sendHandle = new(false);
+    private readonly AutoResetEvent _sendSignal = new(false);
     private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
+    private readonly EventWaitHandle _recvCloseHandle = new(false, EventResetMode.ManualReset);
+    private readonly EventWaitHandle _sendCloseHandle = new(false, EventResetMode.ManualReset);
 
     public Channel() : this(new Options()) { }
 
@@ -46,7 +58,11 @@ internal class Channel : IDisposable
         _recvQueue = new RecvEvent?[options.QueueSize];
         _sendQueue = new SendEvent?[options.QueueSize];
 
-        _socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+        _socket = new Socket(SocketType.Dgram, ProtocolType.Udp)
+        {
+            Blocking = false
+        };
+
         _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, options.IPv6Only);
 
         _localEndPoint = (IPEndPoint)_socket.LocalEndPoint;
@@ -55,8 +71,7 @@ internal class Channel : IDisposable
 
     public void Dispose()
     {
-        _open = false;
-        _sendHandle.Set();
+        Close();
         _socket.Dispose();
     }
 
@@ -81,14 +96,15 @@ internal class Channel : IDisposable
                 return;
             }
 
+
             _open = true;
-            _recvThread ??= new Thread(RecvThread) {
-                Name = "Currents Recv Thread"
+            _recvThread = new Thread(RecvThread) {
+                Name = $"CRNT Recv {LocalEndPoint}"
             };
             _recvThread.Start();
 
-            _sendThread ??= new Thread(SendThread) {
-                Name = "Currents Send Thread"
+            _sendThread = new Thread(SendThread) {
+                Name = $"CRNT Send {LocalEndPoint}"
             };
             _sendThread.Start();
         }
@@ -103,7 +119,15 @@ internal class Channel : IDisposable
                 throw new InvalidOperationException($"Tried to close a {nameof(Channel)} that is not bound.");
             }
 
+            if (!_open)
+            {
+                return;
+            }
+
             _open = false;
+            _sendSignal.Set();
+            _recvCloseHandle.WaitOne();
+            _sendCloseHandle.WaitOne();
         }
     }
 
@@ -113,7 +137,7 @@ internal class Channel : IDisposable
         {
             _sendQueue[_sendEnqueueIndex] = new SendEvent(endPoint, segment);
             _sendEnqueueIndex++;
-            _sendHandle.Set();
+            _sendSignal.Set();
         }
     }
 
@@ -123,13 +147,25 @@ internal class Channel : IDisposable
         {
             while (_recvQueue[_recvDequeueIndex] == null)
             {
-                _recvHandle.WaitOne(timeoutMs);
+                _recvSignal.WaitOne(timeoutMs);
             }
 
             RecvEvent dataEvent = _recvQueue[_recvDequeueIndex]!.Value;
             _recvQueue[_recvDequeueIndex] = null;
             _recvDequeueIndex++;
             return dataEvent;
+        }
+    }
+
+    public RecvEvent ConsumeFrom(IPEndPoint targetEndPoint, int timeoutMs = Timeout.Infinite)
+    {
+        while (true)
+        {
+            RecvEvent recvEvent = Consume(timeoutMs);
+            if (targetEndPoint.Equals(recvEvent.EndPoint))
+            {
+                return recvEvent;
+            }
         }
     }
 
@@ -143,10 +179,18 @@ internal class Channel : IDisposable
 
     private void RecvThread()
     {
+        _recvCloseHandle.Reset();
+
         try
         {
             while (_open)
             {
+                if (_socket.Available == 0)
+                {
+                    Thread.Sleep(5);
+                    continue;
+                }
+
                 int bytesRec = _socket.ReceiveFrom(_recvBuffer, 0, _recvBuffer.Length, SocketFlags.None, ref _lastRecvEndPoint);
 
                 if (!_open)
@@ -154,47 +198,48 @@ internal class Channel : IDisposable
                     break;
                 }
 
-                if (bytesRec > 0)
+                if (bytesRec == 0)
                 {
-                    byte[] buffer = _arrayPool.Rent(bytesRec);
-                    Buffer.BlockCopy(_recvBuffer, 0, buffer, 0, bytesRec);
-                    var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRec);
-
-                    _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
-                    _recvEnqueueIndex++;
-                    _recvHandle.Set();
+                    continue;
                 }
+
+                byte[] buffer = _arrayPool.Rent(bytesRec);
+                Buffer.BlockCopy(_recvBuffer, 0, buffer, 0, bytesRec);
+                var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRec);
+
+                _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
+                _recvEnqueueIndex++;
+                _recvSignal.Set();
             }
         }
         catch (Exception)
         {
             //  Expected
         }
+
+        _recvCloseHandle.Set();
     }
 
     private void SendThread()
     {
+        _sendCloseHandle.Reset();
+
         try
         {
             while (_open)
             {
-                if (_sendQueue[_sendDequeueIndex] == null)
-                {
-                    _sendHandle.WaitOne();
-                }
+                _sendSignal.WaitOne();
 
-                if (!_open)
+                while (_sendQueue[_sendDequeueIndex] != null)
                 {
-                    break;
-                }
+                    SendEvent sendEvent = _sendQueue[_sendDequeueIndex]!.Value;
+                    _sendQueue[_sendDequeueIndex] = null;
+                    _sendDequeueIndex++;
 
-                SendEvent sendEvent = _sendQueue[_sendDequeueIndex]!.Value;
-                _sendQueue[_sendDequeueIndex] = null;
-                _sendDequeueIndex++;
-
-                using (sendEvent.Data)
-                {
-                    _socket.SendTo(sendEvent.Data.Array, sendEvent.Data.Offset, sendEvent.Data.Count, SocketFlags.None, sendEvent.EndPoint);
+                    using (sendEvent.Data)
+                    {
+                        _socket.SendTo(sendEvent.Data.Array, sendEvent.Data.Offset, sendEvent.Data.Count, SocketFlags.None, sendEvent.EndPoint);
+                    }
                 }
             }
         }
@@ -202,5 +247,7 @@ internal class Channel : IDisposable
         {
             //  Expected
         }
+
+        _sendCloseHandle.Set();
     }
 }
