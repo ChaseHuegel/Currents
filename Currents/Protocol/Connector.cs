@@ -29,12 +29,14 @@ internal class Connector : IDisposable
 
     public Connector(ConnectionParameters connectionParameters)
     {
+        connectionParameters.ValidateAndThrow();
         _channel = new Channel();
         _syn = Packets.Packets.NewSyn(connectionParameters);
     }
 
     public Connector(IPEndPoint localEndPoint, ConnectionParameters connectionParameters) : this(connectionParameters)
     {
+        connectionParameters.ValidateAndThrow();
         _channel.Bind(localEndPoint);
     }
 
@@ -60,19 +62,8 @@ internal class Connector : IDisposable
         var synSegment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, _syn.GetSize());
         _syn.SerializeInto(synSegment.Array, synSegment.Offset);
         _channel.Send(synSegment, remoteEndPoint);
-        ConnectionAttempts = 1;
 
-        bool retransmit = true;
-        Task.Run(Retransmit);
-        async Task Retransmit()
-        {
-            while (retransmit)
-            {
-                await Task.Delay(50);
-                _channel.Send(synSegment, remoteEndPoint);
-                ConnectionAttempts++;
-            }
-        }
+        using var synRetransmitter = new Retransmitter(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, synSegment, remoteEndPoint);
 
         RecvEvent recvEvent = _channel.ConsumeFrom(remoteEndPoint);
         using (recvEvent.Data)
@@ -83,13 +74,12 @@ internal class Connector : IDisposable
             {
                 //  TODO validate and accept or decline the syn
                 _syn = remoteSyn;
-                retransmit = false;
+                ConnectionAttempts = synRetransmitter.Retransmissions + 1;
                 Connected = true;
                 return true;
             }
         }
 
-        retransmit = false;
         return false;
     }
 

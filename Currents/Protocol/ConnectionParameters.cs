@@ -103,4 +103,20 @@ internal struct ConnectionParameters
     /// Optional security parameters for establishing the connection.
     /// </summary>
     public Sec? Security;
+
+    public readonly void ValidateAndThrow()
+    {
+        List<Exception>? exceptions = null;
+
+        if (RetransmissionTimeout < 100)
+        {
+            exceptions ??= [];
+            exceptions.Add(new ArgumentException("Retransmission timeouts must range between 100ms and 65535ms", nameof(RetransmissionTimeout)));
+        }
+
+        if (exceptions?.Count > 0)
+        {
+            throw new AggregateException(exceptions);
+        }
+    }
 }

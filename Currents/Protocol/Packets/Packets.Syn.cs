@@ -9,7 +9,9 @@ internal static partial class Packets
             Header = {
                 Controls = (byte)Controls.Syn
             },
-            Version = 1
+            Version = 1,
+            RetransmissionTimeout = 100,
+            MaxRetransmissions = 3
         };
     }
 
