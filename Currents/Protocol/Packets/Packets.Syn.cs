@@ -39,10 +39,10 @@ internal static partial class Packets
         };
     }
 
-    public static PooledArraySegment<byte> SerializePooledSegment(this Syn syn)
+    public static PooledArraySegment<byte> SerializePooledSegment(this Syn packet)
     {
-        var synSegment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, syn.GetSize());
-        syn.SerializeInto(synSegment.Array, synSegment.Offset);
-        return synSegment;
+        var segment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, packet.GetSize());
+        packet.SerializeInto(segment.Array, segment.Offset);
+        return segment;
     }
 }

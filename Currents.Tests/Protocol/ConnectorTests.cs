@@ -97,6 +97,7 @@ public class ConnectorTests
     [TestCase(10)]
     [TestCase(50)]
     [TestCase(100)]
+    [Timeout(10000)]
     public async Task Accept_ManySimultaneous_Succeeds(int connections)
     {
         using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));

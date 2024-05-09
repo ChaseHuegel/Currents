@@ -1,15 +1,17 @@
-using System.Diagnostics.Contracts;
 using System.Net;
+using Currents.Protocol.Packets;
 
 namespace Currents.Protocol;
 
 public readonly struct Connection : IEquatable<IPEndPoint>
 {
     public IPEndPoint EndPoint { get; }
+    public Syn Syn { get; } // TODO replace this with specific params for relevant settings
 
-    public Connection(IPEndPoint endPoint)
+    public Connection(IPEndPoint endPoint, Syn syn)
     {
         EndPoint = endPoint;
+        Syn = syn;
     }
 
     public static implicit operator IPEndPoint(Connection connection) => connection.EndPoint;
