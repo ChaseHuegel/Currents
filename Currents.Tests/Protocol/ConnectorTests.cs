@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using Currents.Protocol;
 using Microsoft.VisualStudio.TestPlatform.ObjectModel;
@@ -97,6 +98,9 @@ public class ConnectorTests
     [TestCase(10)]
     [TestCase(50)]
     [TestCase(100)]
+    [TestCase(200)]
+    [TestCase(500)]
+    [TestCase(1000)]
     [Timeout(10000)]
     public async Task Accept_ManySimultaneous_Succeeds(int connections)
     {
@@ -111,33 +115,30 @@ public class ConnectorTests
             }
         }
 
-        var clients = new List<Connector>();
-        var tcs = new TaskCompletionSource();
-        var connectedClients = 0;
+        var connectTasks = new List<Task>();
         for (int i = 0; i < connections; i++)
         {
             var client = new Connector(new IPEndPoint(IPAddress.Any, 0));
-            clients.Add(client);
+            var task = Task.Run(ConnectClient);
+            connectTasks.Add(task);
 
-            _ = Task.Run(ConnectClient);
             Task ConnectClient()
             {
                 bool connected = client.Connect(new IPEndPoint(IPAddress.Loopback, 4321));
                 client.Dispose();
-                if (connected) {
-                    connectedClients++;
-                }
 
-                if (connectedClients == connections) {
-                    tcs.SetResult();
+                if (!connected) {
+                    Assert.Fail();
                 }
 
                 return Task.CompletedTask;
             }
         }
 
-        await Task.WhenAny(Task.Delay(5000), tcs.Task);
+        Stopwatch sw = Stopwatch.StartNew();
+        await Task.WhenAll(connectTasks);
+        sw.Stop();
 
-        Assert.That(connectedClients, Is.EqualTo(connections));
+        Console.WriteLine($"Accepting {connections} clients took {sw.ElapsedMilliseconds}ms");
     }
 }
