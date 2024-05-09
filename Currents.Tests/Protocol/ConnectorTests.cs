@@ -137,11 +137,6 @@ public class ConnectorTests
 
         await Task.WhenAny(Task.Delay(5000), tcs.Task);
 
-        foreach (var client in clients)
-        {
-            Console.WriteLine($"{client.Channel.LocalEndPoint} made {client.ConnectionAttempts} connection attempts. Success? {client.Connected}");
-        }
-
         Assert.That(connectedClients, Is.EqualTo(connections));
     }
 }

@@ -96,7 +96,6 @@ internal class Channel : IDisposable
                 return;
             }
 
-
             _open = true;
             _recvThread = new Thread(RecvThread) {
                 Name = $"CRNT Recv {LocalEndPoint}"

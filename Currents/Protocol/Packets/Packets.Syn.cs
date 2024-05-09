@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Currents.Protocol.Packets;
 
 internal static partial class Packets
@@ -35,5 +37,12 @@ internal static partial class Packets
             MaxAutoResets = connectionParameters.MaxAutoResets,
             Security = connectionParameters.Security
         };
+    }
+
+    public static PooledArraySegment<byte> SerializePooledSegment(this Syn syn)
+    {
+        var synSegment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, syn.GetSize());
+        syn.SerializeInto(synSegment.Array, synSegment.Offset);
+        return synSegment;
     }
 }
