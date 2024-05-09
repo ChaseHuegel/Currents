@@ -112,7 +112,7 @@ internal class Connector : IDisposable
                     syn.Header.Ack = syn.Header.Sequence;
                     var segment = new PooledArraySegment<byte>(ArrayPool<byte>.Shared, syn.GetSize());
                     syn.SerializeInto(segment.Array, segment.Offset);
-                    _channel.Send(segment, connection);
+                    SendUnreliableUnordered(segment, connection);
                     return;
                 }
             }
@@ -133,8 +133,15 @@ internal class Connector : IDisposable
         return true;
     }
 
+    private void SendUnreliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint)
+    {
+        //  TODO the send methods should handle writing packet headers into the segment
+        _channel.Send(segment, endPoint);
+    }
+
     private void SendReliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint, byte sequence)
     {
+        //  TODO the send methods should handle writing packet headers into the segment
         _channel.Send(segment, endPoint);
         _retransmitters[sequence] = new Retransmitter(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
     }
