@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using Currents.Protocol;
 using Currents.Protocol.Packets;
@@ -23,16 +24,16 @@ public class ChecksumTests
             MaxOutstandingPackets = (byte)TestValues[4]
         };
 
-        var syn = Packets.NewSyn(connectionParameters);
-        var buffer = syn.Serialize();
-        ushort sendChecksum = Checksum16.Compute(buffer);
-        syn.Header.Checksum = sendChecksum;
-        syn.SerializeInto(buffer, 0);
+        var outSyn = Packets.NewSyn(connectionParameters);
+        var outSynBuffer = outSyn.Serialize();
+        ushort outHeaderChecksum = Checksum16.Compute(outSynBuffer);
+        var outPacket = new Packet(outSynBuffer, null, outHeaderChecksum);
+        var outBuffer = outPacket.Serialize();
 
-        syn = Syn.Deserialize(buffer, 0, buffer.Length);
-        ushort recvChecksum = Checksum16.Compute(buffer);
+        var inPacket = Packet.Deserialize(outBuffer, 0, outBuffer.Length);
+        ushort recvChecksum = Checksum16.Compute(inPacket.Header);
 
-        Assert.That(syn.Header.Checksum, Is.EqualTo(recvChecksum));
+        Assert.That(inPacket.Checksum, Is.EqualTo(recvChecksum));
     }
 
     [Test]
