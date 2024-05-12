@@ -82,7 +82,7 @@ public class Checksum16 : HashAlgorithm
             }
         }
 
-        return (ushort)~sum;
+        return sum;
     }
 
     private static byte[] ToHashArray(ushort hash)

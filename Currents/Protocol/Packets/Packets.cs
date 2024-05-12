@@ -10,7 +10,7 @@ internal static partial class Packets
         Eak = 0b00100000,
         Rst = 0b00010000,
         Nul = 0b00001000,
-        Res1 = 0b00000100,
+        Chk = 0b00000100,   // Present if the checksum is for header + body, else just header
         Res2 = 0b00000010,
         Res3 = 0b00000001
     }

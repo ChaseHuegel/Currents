@@ -10,10 +10,33 @@ namespace Currents.Tests.Protocol;
 public class ChecksumTests
 {
     private readonly int[] TestValues = [3, 1, 10_000, 5, 10];
-    private readonly Random Random = new();
 
     [Test]
-    public void Check_Syn_DistinctPermutations()
+    public void Syn_Can_Validate()
+    {
+        var connectionParameters = new ConnectionParameters
+        {
+            MaxRetransmissions = (byte)TestValues[0],
+            Version = (byte)TestValues[1],
+            MaxPacketSize = (ushort)TestValues[2],
+            MaxOutOfSequencePackets = (byte)TestValues[3],
+            MaxOutstandingPackets = (byte)TestValues[4]
+        };
+
+        var syn = Packets.NewSyn(connectionParameters);
+        var buffer = syn.Serialize();
+        ushort sendChecksum = Checksum16.Compute(buffer);
+        syn.Header.Checksum = sendChecksum;
+        syn.SerializeInto(buffer, 0);
+
+        syn = Syn.Deserialize(buffer, 0, buffer.Length);
+        ushort recvChecksum = Checksum16.Compute(buffer);
+
+        Assert.That(syn.Header.Checksum, Is.EqualTo(recvChecksum));
+    }
+
+    [Test]
+    public void Syn_Check_DistinctPermutations()
     {
         var cases = new ConnectionParameters[TestValues.Length * TestValues.Length];
         int n = 0;

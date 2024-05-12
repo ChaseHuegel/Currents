@@ -6,6 +6,7 @@ message Header
     byte Controls   = 0;
     byte Sequence   = 1;
     byte Ack        = 2;
+    ushort Checksum = 3;
 }
 
 message Syn
