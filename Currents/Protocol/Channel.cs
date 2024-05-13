@@ -201,7 +201,7 @@ internal class Channel : IDisposable
                     break;
                 }
 
-                if (bytesRec == 0)
+                if (bytesRec < 5)
                 {
                     continue;
                 }
