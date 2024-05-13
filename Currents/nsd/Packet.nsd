@@ -1,13 +1,6 @@
 #version 1.0;
 #namespace Currents.Protocol.Packets;
 
-message Packet
-{
-    byte[] Header   = 0;
-    byte[]? Data    = 1;
-    ushort Checksum = 2;
-}
-
 message Header
 {
     byte Controls   = 0;

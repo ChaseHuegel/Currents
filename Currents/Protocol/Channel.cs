@@ -1,6 +1,9 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
+using Currents.Protocol.Packets;
+using Currents.Security.Cryptography;
+using Currents.Utils;
 
 namespace Currents.Protocol;
 
@@ -45,6 +48,7 @@ internal class Channel : IDisposable
     private readonly RecvEvent?[] _recvQueue;
     private readonly AutoResetEvent _recvSignal = new(false);
     private readonly byte[] _recvBuffer = new byte[ushort.MaxValue];
+    private readonly byte[] _sendBuffer = new byte[ushort.MaxValue + 2];
     private readonly SendEvent?[] _sendQueue;
     private readonly AutoResetEvent _sendSignal = new(false);
     private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
@@ -202,8 +206,17 @@ internal class Channel : IDisposable
                     continue;
                 }
 
+                ushort expectedChecksum = Bytes.ReadUShort(_recvBuffer, 0);
+                ushort actualChecksum = Checksum16.Compute(_recvBuffer, 2, bytesRec - 2);
+
+                if (expectedChecksum != actualChecksum)
+                {
+                    //  TODO raise a signal?
+                    continue;
+                }
+
                 byte[] buffer = _arrayPool.Rent(bytesRec);
-                Buffer.BlockCopy(_recvBuffer, 0, buffer, 0, bytesRec);
+                Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRec);
                 var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRec);
 
                 _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
@@ -235,10 +248,16 @@ internal class Channel : IDisposable
                     _sendQueue[_sendDequeueIndex] = null;
                     _sendDequeueIndex++;
 
+                    int packetLength;
                     using (sendEvent.Data)
                     {
-                        _socket.SendTo(sendEvent.Data.Array, sendEvent.Data.Offset, sendEvent.Data.Count, SocketFlags.None, sendEvent.EndPoint);
+                        ushort checksum = Checksum16.Compute(sendEvent.Data.Array, sendEvent.Data.Offset, sendEvent.Data.Count);
+                        Bytes.Write(_sendBuffer, 0, checksum);
+                        Buffer.BlockCopy(sendEvent.Data.Array, sendEvent.Data.Offset, _sendBuffer, 2, sendEvent.Data.Count);
+                        packetLength = sendEvent.Data.Count + 2;
                     }
+
+                    _socket.SendTo(_sendBuffer, 0, packetLength, SocketFlags.None, sendEvent.EndPoint);
                 }
             }
         }

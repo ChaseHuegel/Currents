@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using Currents.Protocol;
 using Currents.Protocol.Packets;
 using Currents.Security.Cryptography;
+using Currents.Utils;
 using NUnit.Framework.Internal;
 
 namespace Currents.Tests.Protocol;
@@ -26,14 +27,15 @@ public class ChecksumTests
 
         var outSyn = Packets.NewSyn(connectionParameters);
         var outSynBuffer = outSyn.Serialize();
-        ushort outHeaderChecksum = Checksum16.Compute(outSynBuffer);
-        var outPacket = new Packet(outSynBuffer, null, outHeaderChecksum);
-        var outBuffer = outPacket.Serialize();
+        ushort outChecksum = Checksum16.Compute(outSynBuffer);
+        var outBuffer = new byte[outSynBuffer.Length + 2];
+        Bytes.Write(outBuffer, 0, outChecksum);
+        Buffer.BlockCopy(outSynBuffer, 0, outBuffer, 2, outSynBuffer.Length);
 
-        var inPacket = Packet.Deserialize(outBuffer, 0, outBuffer.Length);
-        ushort recvChecksum = Checksum16.Compute(inPacket.Header);
+        ushort expectedChecksum = Bytes.ReadUShort(outBuffer, 0);
+        ushort actualChecksum = Checksum16.Compute(outBuffer, 2, outBuffer.Length - 2);
 
-        Assert.That(inPacket.Checksum, Is.EqualTo(recvChecksum));
+        Assert.That(expectedChecksum, Is.EqualTo(actualChecksum));
     }
 
     [Test]
