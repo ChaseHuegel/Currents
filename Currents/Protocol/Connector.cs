@@ -137,13 +137,6 @@ internal class Connector : IDisposable
         return true;
     }
 
-    private bool ValidateChecksum(RecvEvent recvEvent, Header header)
-    {
-        //  TODO Introduce a checksum to the header to validate the RecvEvent isn't random junk
-        //  TODO It could be random data from the remote that happens to deserialize into a useless object
-        return true;
-    }
-
     private void SendUnreliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint)
     {
         //  TODO the send methods should handle writing packet headers into the segment
@@ -165,11 +158,6 @@ internal class Connector : IDisposable
         {
             RecvEvent recvEvent = _channel.ConsumeFrom(remoteEndPoint);
             Header header = Header.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-
-            if (!ValidateChecksum(recvEvent, header))
-            {
-                continue;
-            }
 
             if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
             {
