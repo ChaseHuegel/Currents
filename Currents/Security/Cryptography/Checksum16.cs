@@ -78,7 +78,7 @@ public class Checksum16 : HashAlgorithm
             }
             else
             {
-                sum += (ushort)((buffer[1] << 8) | buffer[i]);
+                sum += (ushort)((buffer[i+1] << 8) | buffer[i]);
             }
         }
 
