@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Currents.Protocol.Packets;
+using Currents.Utils;
 
 namespace Currents.Protocol;
 
@@ -15,6 +16,8 @@ internal class Connector : IDisposable
     private volatile byte _sequence;
     private readonly PacketConsumer _packetConsumer;
     private readonly HashSet<Connection> _connections = [];
+    private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(256);
+    private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(256);
     private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
 
     public Connector()
@@ -22,6 +25,8 @@ internal class Connector : IDisposable
         _channel = new Channel();
         _packetConsumer = new PacketConsumer(_channel);
         _packetConsumer.AckRecv += OnAckRecv;
+        _packetConsumer.SynRecv += OnSynRecv;
+        _packetConsumer.RstRecv += OnRstRecv;
     }
 
     public Connector(IPEndPoint localEndPoint) : this()
@@ -97,9 +102,18 @@ internal class Connector : IDisposable
 
     private PacketEvent<Syn> RecvSyn(IPEndPoint? remoteEndPoint = null)
     {
-        using PacketSignal<Syn> synRecvSignal = new(_packetConsumer, remoteEndPoint);
-        PacketEvent<Syn> serverSyn = synRecvSignal.WaitOne();
-        return serverSyn;
+        if (remoteEndPoint == null)
+        {
+            return _synBuffer.Consume();
+        }
+
+        PacketEvent<Syn> syn;
+        do
+        {
+            syn = _synBuffer.Consume();
+        } while (!syn.EndPoint.Equals(remoteEndPoint));
+
+        return syn;
     }
 
     public void Accept()
@@ -201,6 +215,12 @@ internal class Connector : IDisposable
         _retransmitters[_sequence] = retransmitter;
     }
 
+    private void OnRetransmitterExpired(object sender, EndPointEventArgs e)
+    {
+        Console.WriteLine($"Resetting {e.EndPoint} from {_channel.LocalEndPoint}");
+        TryReset(e.EndPoint);
+    }
+
     private void OnAckRecv(object sender, PacketEvent<Ack> e)
     {
         Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
@@ -213,9 +233,13 @@ internal class Connector : IDisposable
         }
     }
 
-    private void OnRetransmitterExpired(object sender, EndPointEventArgs e)
+    private void OnSynRecv(object sender, PacketEvent<Syn> e)
     {
-        Console.WriteLine($"Resetting {e.EndPoint} from {_channel.LocalEndPoint}");
-        TryReset(e.EndPoint);
+        _synBuffer.Enqueue(e);
+    }
+
+    private void OnRstRecv(object sender, PacketEvent<Rst> e)
+    {
+        _rstBuffer.Enqueue(e);
     }
 }
