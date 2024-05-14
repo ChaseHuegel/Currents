@@ -13,7 +13,7 @@ internal class Connector : IDisposable
     private Channel _channel;
     private Syn _syn;
     private volatile byte _sequence;
-    private readonly List<Connection> _connections = [];
+    private readonly HashSet<Connection> _connections = [];
     private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
 
     public Connector()
@@ -33,8 +33,17 @@ internal class Connector : IDisposable
 
     public void Close()
     {
+        lock (_connections)
+        {
+            foreach (Connection connection in _connections)
+            {
+                TryReset(connection);
+            }
+        }
+
         _channel.Close();
     }
+
 
     public bool Connect(IPEndPoint remoteEndPoint, ConnectionParameters? connectionParameters = null)
     {
@@ -107,9 +116,12 @@ internal class Connector : IDisposable
                     }
 
                     var connection = new Connection(recvEvent.EndPoint, syn);
-                    if (!_connections.Contains(connection))
+                    lock (_connections)
                     {
-                        _connections.Add(connection);
+                        if (!_connections.Contains(connection))
+                        {
+                            _connections.Add(connection);
+                        }
                     }
 
                     //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
@@ -120,6 +132,24 @@ internal class Connector : IDisposable
                     return;
                 }
             }
+        }
+    }
+
+    public bool TryReset(IPEndPoint endPoint)
+    {
+        lock (_connections)
+        {
+            if (!_connections.TryGetValue((Connection)endPoint, out Connection connection))
+            {
+                return false;
+            }
+
+            _connections.Remove(connection);
+
+            //  TODO include current ack for the connection
+            Rst rst = Packets.Packets.NewRst(_sequence, 0);
+            SendUnreliableUnordered(rst.SerializePooledSegment(), connection);
+            return true;
         }
     }
 
@@ -148,7 +178,10 @@ internal class Connector : IDisposable
     {
         //  TODO the send methods should handle writing packet headers into the segment
         _channel.Send(segment, endPoint);
-        _retransmitters[_sequence] = new Retransmitter(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
+        Retransmitter retransmitter = new(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
+        retransmitter.Expired += OnRetransmitterExpired;
+
+        _retransmitters[_sequence] = retransmitter;
         _sequence++;
     }
 
@@ -161,11 +194,20 @@ internal class Connector : IDisposable
 
             if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
             {
-                _retransmitters[header.Ack]?.Dispose();
+                Retransmitter? retransmitter = _retransmitters[header.Ack];
+                if (retransmitter != null)
+                {
+                    retransmitter.Expired -= OnRetransmitterExpired;
+                    retransmitter.Dispose();
+                }
             }
 
             return recvEvent;
         }
     }
 
+    private void OnRetransmitterExpired(object sender, EndPointEventArgs e)
+    {
+        TryReset(e.EndPoint);
+    }
 }

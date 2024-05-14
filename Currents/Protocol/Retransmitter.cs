@@ -6,7 +6,7 @@ using Timer = System.Timers.Timer;
 
 internal class Retransmitter : IDisposable
 {
-    public EventHandler<EventArgs>? Expired;
+    public EventHandler<EndPointEventArgs>? Expired;
 
     public IPEndPoint EndPoint
     {
@@ -93,7 +93,7 @@ internal class Retransmitter : IDisposable
         if (_maxRetransmissions > 0 && _retransmissions >= _maxRetransmissions)
         {
             _timer.Stop();
-            Expired?.Invoke(this, EventArgs.Empty);
+            Expired?.Invoke(this, new EndPointEventArgs(_endPoint));
             return;
         }
 

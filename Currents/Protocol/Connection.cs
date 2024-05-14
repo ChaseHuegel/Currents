@@ -8,6 +8,11 @@ public readonly struct Connection : IEquatable<IPEndPoint>
     public IPEndPoint EndPoint { get; }
     public Syn Syn { get; } // TODO replace this with specific params for relevant settings
 
+    private Connection(IPEndPoint endPoint)
+    {
+        EndPoint = endPoint;
+    }
+
     public Connection(IPEndPoint endPoint, Syn syn)
     {
         EndPoint = endPoint;
@@ -15,6 +20,7 @@ public readonly struct Connection : IEquatable<IPEndPoint>
     }
 
     public static implicit operator IPEndPoint(Connection connection) => connection.EndPoint;
+    public static explicit operator Connection(IPEndPoint endPoint) => new(endPoint);
 
     public override bool Equals(object obj)
     {
