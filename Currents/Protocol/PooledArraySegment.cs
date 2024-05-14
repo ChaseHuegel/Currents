@@ -33,6 +33,13 @@ public struct PooledArraySegment<T>(ArrayPool<T> pool, T[] array, int offset, in
         }
     }
 
+    public readonly PooledArraySegment<T> Copy()
+    {
+        var newSegment = new PooledArraySegment<T>(_arrayPool, Count);
+        Buffer.BlockCopy(Array, Offset, newSegment.Array, newSegment.Offset, Count);
+        return newSegment;
+    }
+
     public readonly T this[int index]
     {
         get

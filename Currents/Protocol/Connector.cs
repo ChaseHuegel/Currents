@@ -76,8 +76,9 @@ internal class Connector : IDisposable
 
         Open();
 
-        var segment = requestedSyn.SerializePooledSegment();
+        PooledArraySegment<byte> segment = requestedSyn.SerializePooledSegment();
         SendReliableUnordered(segment, remoteEndPoint);
+        Console.WriteLine($"{_channel.LocalEndPoint} sending syn with sequence {requestedSyn.Header.Sequence} and ack {requestedSyn.Header.Ack} to {remoteEndPoint}");
 
         PacketEvent<Syn> recv = RecvSyn(remoteEndPoint);
         Syn clientSyn = recv.Packet;
@@ -90,6 +91,7 @@ internal class Connector : IDisposable
 
         _syn = clientSyn;
         Connected = true;
+        Console.WriteLine($"{_channel.LocalEndPoint} connected to {remoteEndPoint}");
         return true;
     }
 
@@ -129,6 +131,7 @@ internal class Connector : IDisposable
             clientSyn.Header.Ack = clientSyn.Header.Sequence;
             clientSyn.Header.Sequence = _sequence;
             SendUnreliableUnordered(clientSyn.SerializePooledSegment(), connection);
+            Console.WriteLine($"Accepted {connection.EndPoint} from {_channel.LocalEndPoint} with ack {clientSyn.Header.Ack}");
             return;
         }
     }
@@ -180,8 +183,8 @@ internal class Connector : IDisposable
     private void SendReliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint)
     {
         //  TODO the send methods should handle writing packet headers into the segment
-        _channel.Send(segment, endPoint);
         AddRetransmitter(segment, endPoint);
+        _channel.Send(segment, endPoint);
         _sequence++;
     }
 
@@ -201,8 +204,10 @@ internal class Connector : IDisposable
     private void OnAckRecv(object sender, PacketEvent<Ack> e)
     {
         Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
+        Console.WriteLine($"Got an ack for {e.Packet.Header.Ack} {_channel.LocalEndPoint} from {e.EndPoint}");
         if (retransmitter != null)
         {
+            Console.WriteLine($"Removed retransmitter for {e.Packet.Header.Ack} {_channel.LocalEndPoint}");
             retransmitter.Expired -= OnRetransmitterExpired;
             retransmitter.Dispose();
         }
@@ -210,6 +215,7 @@ internal class Connector : IDisposable
 
     private void OnRetransmitterExpired(object sender, EndPointEventArgs e)
     {
+        Console.WriteLine($"Resetting {e.EndPoint} from {_channel.LocalEndPoint}");
         TryReset(e.EndPoint);
     }
 }

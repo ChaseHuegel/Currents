@@ -87,6 +87,7 @@ internal class PacketConsumer : IDisposable
         if (typeof(T) == typeof(Syn))
         {
             SynRecv += listener as EventHandler<PacketEvent<Syn>>;
+            Console.WriteLine($"Add Syn listener {_channel.LocalEndPoint}");
             return;
         }
 
@@ -108,6 +109,7 @@ internal class PacketConsumer : IDisposable
         if (typeof(T) == typeof(Syn))
         {
             SynRecv -= listener as EventHandler<PacketEvent<Syn>>;
+            Console.WriteLine($"Remove Syn listener {_channel.LocalEndPoint}");
             return;
         }
 
@@ -131,22 +133,26 @@ internal class PacketConsumer : IDisposable
 
             using (recvEvent)
             {
-                Header header = Header.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset + 2, recvEvent.Data.Count);
+                Packet packet = Packet.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+                Header header = packet.Header;
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
                 {
+                    Console.WriteLine($"Recv ack {header.Ack} {_channel.LocalEndPoint} from {recvEvent.EndPoint}");
                     Ack ack = Ack.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
                     AckRecv?.Invoke(this, new PacketEvent<Ack>(ack, recvEvent.EndPoint));
                 }
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
                 {
+                    Console.WriteLine($"Recv syn {_channel.LocalEndPoint} from {recvEvent.EndPoint}");
                     Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
                     SynRecv?.Invoke(this, new PacketEvent<Syn>(syn, recvEvent.EndPoint));
                 }
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Rst) != 0)
                 {
+                    Console.WriteLine($"Recv rst {_channel.LocalEndPoint} from {recvEvent.EndPoint}");
                     Rst rst = Rst.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
                     RstRecv?.Invoke(this, new PacketEvent<Rst>(rst, recvEvent.EndPoint));
                 }

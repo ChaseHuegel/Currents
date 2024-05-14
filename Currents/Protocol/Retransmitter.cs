@@ -38,9 +38,9 @@ internal class Retransmitter : IDisposable
     private readonly ushort _retransmissionTimeout;
     private readonly Timer _timer;
     private readonly Channel _channel;
-    private readonly PooledArraySegment<byte> _data;
     private readonly IPEndPoint _endPoint;
 
+    private PooledArraySegment<byte> _data;
     private byte _retransmissions;
     private bool _disposed;
 
@@ -62,16 +62,13 @@ internal class Retransmitter : IDisposable
     /// </param>
     public Retransmitter(Channel channel, byte maxRetransmissions, ushort retransmissionTimeoutMs, PooledArraySegment<byte> data, IPEndPoint endPoint)
     {
+        _data = data.Copy();
         _channel = channel;
         _maxRetransmissions = maxRetransmissions;
         _retransmissionTimeout = retransmissionTimeoutMs;
-        _data = data;
         _endPoint = endPoint;
 
-        _timer = new Timer(_retransmissionTimeout)
-        {
-            AutoReset = false
-        };
+        _timer = new Timer(_retransmissionTimeout);
         _timer.Elapsed += OnElapsed;
         _timer.Start();
     }
@@ -98,8 +95,11 @@ internal class Retransmitter : IDisposable
         }
 
         _timer.Stop();
+        PooledArraySegment<byte> dataCopy = _data.Copy();
         _channel.Send(_data, _endPoint);
+        _data = dataCopy;
         _retransmissions++;
         _timer.Start();
+        Console.WriteLine($"Retransmit from {_channel.LocalEndPoint} to {_endPoint}");
     }
 }

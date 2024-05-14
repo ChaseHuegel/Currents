@@ -1,6 +1,11 @@
 #version 1.0;
 #namespace Currents.Protocol.Packets;
 
+message Packet
+{
+    Header Header = 0;
+}
+
 message Header
 {
     byte Controls   = 0;
