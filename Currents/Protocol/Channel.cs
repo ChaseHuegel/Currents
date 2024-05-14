@@ -46,10 +46,10 @@ internal class Channel : IDisposable
 
     private readonly Socket _socket;
     private readonly RecvEvent?[] _recvQueue;
+    private readonly SendEvent?[] _sendQueue;
     private readonly AutoResetEvent _recvSignal = new(false);
     private readonly byte[] _recvBuffer = new byte[ushort.MaxValue];
     private readonly byte[] _sendBuffer = new byte[ushort.MaxValue + 2];
-    private readonly SendEvent?[] _sendQueue;
     private readonly AutoResetEvent _sendSignal = new(false);
     private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
     private readonly EventWaitHandle _recvCloseHandle = new(false, EventResetMode.ManualReset);
@@ -144,27 +144,60 @@ internal class Channel : IDisposable
         }
     }
 
-    public RecvEvent Consume(int timeoutMs = Timeout.Infinite)
+    public bool TryConsume(out RecvEvent recvEvent, int timeoutMs = Timeout.Infinite)
+    {
+        lock (_recvDequeueLock)
+        {
+            if (_recvQueue[_recvDequeueIndex] == null)
+            {
+                _recvSignal.WaitOne(timeoutMs);
+            }
+
+            if (_recvQueue[_recvDequeueIndex] == null)
+            {
+                recvEvent = default;
+                return false;
+            }
+
+            recvEvent = DequeueRecvEvent();
+            return true;
+        }
+    }
+
+    public RecvEvent Consume()
     {
         lock (_recvDequeueLock)
         {
             while (_recvQueue[_recvDequeueIndex] == null)
             {
-                _recvSignal.WaitOne(timeoutMs);
+                _recvSignal.WaitOne();
             }
 
-            RecvEvent dataEvent = _recvQueue[_recvDequeueIndex]!.Value;
-            _recvQueue[_recvDequeueIndex] = null;
-            _recvDequeueIndex++;
-            return dataEvent;
+            return DequeueRecvEvent();
         }
     }
 
-    public RecvEvent ConsumeFrom(IPEndPoint targetEndPoint, int timeoutMs = Timeout.Infinite)
+    public bool TryConsumeFrom(IPEndPoint targetEndPoint, out RecvEvent recvEvent, int timeoutMs = Timeout.Infinite)
     {
         while (true)
         {
-            RecvEvent recvEvent = Consume(timeoutMs);
+            if (!TryConsume(out recvEvent, timeoutMs))
+            {
+                return false;
+            }
+
+            if (targetEndPoint.Equals(recvEvent.EndPoint))
+            {
+                return true;
+            }
+        }
+    }
+
+    public RecvEvent ConsumeFrom(IPEndPoint targetEndPoint)
+    {
+        while (true)
+        {
+            RecvEvent recvEvent = Consume();
             if (targetEndPoint.Equals(recvEvent.EndPoint))
             {
                 return recvEvent;
@@ -178,6 +211,14 @@ internal class Channel : IDisposable
         {
             return _recvQueue[_recvDequeueIndex] != null;
         }
+    }
+
+    private RecvEvent DequeueRecvEvent()
+    {
+        RecvEvent recvEvent = _recvQueue[_recvDequeueIndex]!.Value;
+        _recvQueue[_recvDequeueIndex] = null;
+        _recvDequeueIndex++;
+        return recvEvent;
     }
 
     private void RecvThread()
