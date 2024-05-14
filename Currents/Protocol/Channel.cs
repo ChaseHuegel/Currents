@@ -229,7 +229,7 @@ internal class Channel : IDisposable
         {
             while (_open)
             {
-                if (_socket.Available == 0)
+                if (_socket.Available == 0 || _recvQueue[_recvEnqueueIndex] != null)
                 {
                     Thread.Sleep(5);
                     continue;
