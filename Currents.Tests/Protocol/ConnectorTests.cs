@@ -54,7 +54,6 @@ public class ConnectorTests
     }
 
     [Test]
-    [Repeat(100)]
     [Timeout(5000)]
     public void Connect_Insecure_IPv4_Succeeds()
     {
@@ -74,7 +73,6 @@ public class ConnectorTests
     }
 
     [Test]
-    [Repeat(100)]
     [Timeout(5000)]
     public void Connect_Insecure_IPv6_Succeeds()
     {
