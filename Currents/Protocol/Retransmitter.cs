@@ -70,7 +70,7 @@ internal class Retransmitter : IDisposable
 
         _timer = new Timer(_retransmissionTimeout)
         {
-            AutoReset = true
+            AutoReset = false
         };
         _timer.Elapsed += OnElapsed;
         _timer.Start();
@@ -97,7 +97,9 @@ internal class Retransmitter : IDisposable
             return;
         }
 
+        _timer.Stop();
         _channel.Send(_data, _endPoint);
         _retransmissions++;
+        _timer.Start();
     }
 }

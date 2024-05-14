@@ -13,12 +13,15 @@ internal class Connector : IDisposable
     private Channel _channel;
     private Syn _syn;
     private volatile byte _sequence;
+    private readonly PacketConsumer _packetConsumer;
     private readonly HashSet<Connection> _connections = [];
     private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
 
     public Connector()
     {
         _channel = new Channel();
+        _packetConsumer = new PacketConsumer(_channel);
+        _packetConsumer.AckRecv += OnAckRecv;
     }
 
     public Connector(IPEndPoint localEndPoint) : this()
@@ -28,6 +31,7 @@ internal class Connector : IDisposable
 
     public void Dispose()
     {
+        _packetConsumer.Dispose();
         _channel.Dispose();
     }
 
@@ -41,6 +45,7 @@ internal class Connector : IDisposable
             }
         }
 
+        _packetConsumer.Stop();
         _channel.Close();
     }
 
@@ -69,69 +74,62 @@ internal class Connector : IDisposable
         requestedSyn.Options = (byte)Packets.Packets.Options.Reliable;
         _syn = requestedSyn;
 
-        _channel.Open();
+        Open();
 
-        SendReliableUnordered(requestedSyn.SerializePooledSegment(), remoteEndPoint);
+        var segment = requestedSyn.SerializePooledSegment();
+        SendReliableUnordered(segment, remoteEndPoint);
 
-        RecvEvent recvEvent = ConsumeFromUnordered(remoteEndPoint);
+        PacketEvent<Syn> recv = RecvSyn(remoteEndPoint);
+        Syn clientSyn = recv.Packet;
 
-        using (recvEvent.Data)
+        if (!ValidateServerSyn(clientSyn))
         {
-            Syn responseSyn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-            if ((responseSyn.Header.Controls & (byte)Packets.Packets.Controls.Syn) == 0)
-            {
-                return false;
-            }
-
-            if (!ValidateServerSyn(responseSyn))
-            {
-                //  TODO return a ConnectionResult with details instead of bool
-                return false;
-            }
-
-            _syn = responseSyn;
-            Connected = true;
-            return true;
+            //  TODO return a ConnectionResult with details instead of bool
+            return false;
         }
+
+        _syn = clientSyn;
+        Connected = true;
+        return true;
+    }
+
+    private PacketEvent<Syn> RecvSyn(IPEndPoint? remoteEndPoint = null)
+    {
+        using PacketSignal<Syn> synRecvSignal = new(_packetConsumer, remoteEndPoint);
+        PacketEvent<Syn> serverSyn = synRecvSignal.WaitOne();
+        return serverSyn;
     }
 
     public void Accept()
     {
-        _channel.Open();
+        Open();
 
         while (true)
         {
-            RecvEvent recvEvent = _channel.Consume();
-            using (recvEvent.Data)
+            PacketEvent<Syn> recv = RecvSyn();
+            Syn clientSyn = recv.Packet;
+
+            if (!ValidateClientSyn(clientSyn))
             {
-                Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+                SendRst(recv.EndPoint, clientSyn.Header.Sequence);
+                continue;
+            }
 
-                if ((syn.Header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
+            var connection = new Connection(recv.EndPoint, clientSyn);
+            lock (_connections)
+            {
+                if (!_connections.Contains(connection))
                 {
-                    if (!ValidateClientSyn(syn))
-                    {
-                        var rst = Packets.Packets.NewRst(_sequence, syn.Header.Sequence);
-                        SendUnreliableUnordered(rst.SerializePooledSegment(), recvEvent.EndPoint);
-                        continue;
-                    }
-
-                    var connection = new Connection(recvEvent.EndPoint, syn);
-                    lock (_connections)
-                    {
-                        if (!_connections.Contains(connection))
-                        {
-                            _connections.Add(connection);
-                        }
-                    }
-
-                    //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
-                    syn.Header.Controls |= (byte)Packets.Packets.Controls.Ack;
-                    syn.Header.Ack = syn.Header.Sequence;
-                    syn.Header.Sequence = _sequence;
-                    SendUnreliableUnordered(syn.SerializePooledSegment(), connection);
-                    return;
+                    _connections.Add(connection);
                 }
             }
+
+            //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
+            clientSyn.Header.Controls |= (byte)Packets.Packets.Controls.Ack;
+            clientSyn.Header.Ack = clientSyn.Header.Sequence;
+            clientSyn.Header.Sequence = _sequence;
+            SendUnreliableUnordered(clientSyn.SerializePooledSegment(), connection);
+            return;
         }
     }
 
@@ -147,10 +145,15 @@ internal class Connector : IDisposable
             _connections.Remove(connection);
 
             //  TODO include current ack for the connection
-            Rst rst = Packets.Packets.NewRst(_sequence, 0);
-            SendUnreliableUnordered(rst.SerializePooledSegment(), connection);
+            SendRst(endPoint, 0);
             return true;
         }
+    }
+
+    private void Open()
+    {
+        _channel.Open();
+        _packetConsumer.Start();
     }
 
     private bool ValidateServerSyn(Syn syn)
@@ -178,31 +181,30 @@ internal class Connector : IDisposable
     {
         //  TODO the send methods should handle writing packet headers into the segment
         _channel.Send(segment, endPoint);
-        Retransmitter retransmitter = new(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
-        retransmitter.Expired += OnRetransmitterExpired;
-
-        _retransmitters[_sequence] = retransmitter;
+        AddRetransmitter(segment, endPoint);
         _sequence++;
     }
 
-    private RecvEvent ConsumeFromUnordered(IPEndPoint remoteEndPoint)
+    private void SendRst(IPEndPoint endPoint, byte ack)
     {
-        while (true)
+        Rst rst = Packets.Packets.NewRst(_sequence, ack);
+        SendUnreliableUnordered(rst.SerializePooledSegment(), endPoint);
+    }
+
+    private void AddRetransmitter(PooledArraySegment<byte> segment, IPEndPoint endPoint)
+    {
+        Retransmitter retransmitter = new(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
+        retransmitter.Expired += OnRetransmitterExpired;
+        _retransmitters[_sequence] = retransmitter;
+    }
+
+    private void OnAckRecv(object sender, PacketEvent<Ack> e)
+    {
+        Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
+        if (retransmitter != null)
         {
-            RecvEvent recvEvent = _channel.ConsumeFrom(remoteEndPoint);
-            Header header = Header.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-
-            if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
-            {
-                Retransmitter? retransmitter = _retransmitters[header.Ack];
-                if (retransmitter != null)
-                {
-                    retransmitter.Expired -= OnRetransmitterExpired;
-                    retransmitter.Dispose();
-                }
-            }
-
-            return recvEvent;
+            retransmitter.Expired -= OnRetransmitterExpired;
+            retransmitter.Dispose();
         }
     }
 

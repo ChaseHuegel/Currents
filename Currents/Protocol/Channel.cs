@@ -256,9 +256,9 @@ internal class Channel : IDisposable
                     continue;
                 }
 
-                byte[] buffer = _arrayPool.Rent(bytesRec);
-                Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRec);
-                var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRec);
+                byte[] buffer = _arrayPool.Rent(bytesRec - 2);
+                Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRec - 2);
+                var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRec - 2);
 
                 _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
                 _recvEnqueueIndex++;
