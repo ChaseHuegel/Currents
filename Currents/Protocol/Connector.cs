@@ -1,8 +1,8 @@
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Currents.Protocol.Packets;
 using Currents.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace Currents.Protocol;
 
@@ -19,17 +19,23 @@ internal class Connector : IDisposable
     private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(256);
     private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(256);
     private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
+    private readonly ILogger _logger;
+    private readonly ConnectorMetrics _metrics;
 
-    public Connector()
+    public Connector(ILogger logger, ConnectorMetrics metrics)
     {
+        _logger = logger;
+        _metrics = metrics;
+
         _channel = new Channel();
         _packetConsumer = new PacketConsumer(_channel);
+
         _packetConsumer.AckRecv += OnAckRecv;
         _packetConsumer.SynRecv += OnSynRecv;
         _packetConsumer.RstRecv += OnRstRecv;
     }
 
-    public Connector(IPEndPoint localEndPoint) : this()
+    public Connector(IPEndPoint localEndPoint, ILogger logger, ConnectorMetrics metrics) : this(logger, metrics)
     {
         _channel.Bind(localEndPoint);
     }
@@ -81,9 +87,8 @@ internal class Connector : IDisposable
 
         Open();
 
-        PooledArraySegment<byte> segment = requestedSyn.SerializePooledSegment();
-        SendReliableUnordered(segment, remoteEndPoint);
-        Console.WriteLine($"{_channel.LocalEndPoint} sending syn with sequence {requestedSyn.Header.Sequence} and ack {requestedSyn.Header.Ack} to {remoteEndPoint}");
+        SendSyn(remoteEndPoint, requestedSyn, true);
+        _logger.LogInformation("{LocalEndPoint} sending syn with sequence {Sequence} and ack {Ack} to {remoteEndPoint}", _channel.LocalEndPoint, requestedSyn.Header.Sequence, requestedSyn.Header.Ack, remoteEndPoint);
 
         PacketEvent<Syn> recv = RecvSyn(remoteEndPoint);
         Syn clientSyn = recv.Packet;
@@ -96,7 +101,8 @@ internal class Connector : IDisposable
 
         _syn = clientSyn;
         Connected = true;
-        Console.WriteLine($"{_channel.LocalEndPoint} connected to {remoteEndPoint}");
+        _logger.LogInformation("{LocalEndPoint} connected to {remoteEndPoint}", _channel.LocalEndPoint, remoteEndPoint);
+        _metrics.Connected(_channel.LocalEndPoint, remoteEndPoint);
         return true;
     }
 
@@ -141,11 +147,13 @@ internal class Connector : IDisposable
             }
 
             //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
+            _syn = clientSyn;
             clientSyn.Header.Controls |= (byte)Packets.Packets.Controls.Ack;
             clientSyn.Header.Ack = clientSyn.Header.Sequence;
             clientSyn.Header.Sequence = _sequence;
-            SendUnreliableUnordered(clientSyn.SerializePooledSegment(), connection);
-            Console.WriteLine($"Accepted {connection.EndPoint} from {_channel.LocalEndPoint} with ack {clientSyn.Header.Ack}");
+            SendSyn(connection, clientSyn, false);
+            _logger.LogInformation("Accepted {EndPoint} from {LocalEndPoint} with ack {Ack}", connection, _channel.LocalEndPoint, clientSyn.Header.Ack);
+            _metrics.AcceptedConnection(connection, _channel.LocalEndPoint);
             return;
         }
     }
@@ -163,6 +171,7 @@ internal class Connector : IDisposable
 
             //  TODO include current ack for the connection
             SendRst(endPoint, 0);
+            _logger.LogInformation("Reset {EndPoint} from {LocalEndPoint}", endPoint, _channel.LocalEndPoint);
             return true;
         }
     }
@@ -202,10 +211,27 @@ internal class Connector : IDisposable
         _sequence++;
     }
 
+    private void SendSyn(IPEndPoint endPoint, Syn syn, bool reliable)
+    {
+        PooledArraySegment<byte> segment = syn.SerializePooledSegment();
+        if (reliable)
+        {
+            SendReliableUnordered(segment, endPoint);
+        }
+        else
+        {
+            SendUnreliableUnordered(segment, endPoint);
+        }
+
+        _metrics.PacketSent(Packets.Packets.Controls.Syn, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
+    }
+
     private void SendRst(IPEndPoint endPoint, byte ack)
     {
         Rst rst = Packets.Packets.NewRst(_sequence, ack);
-        SendUnreliableUnordered(rst.SerializePooledSegment(), endPoint);
+        PooledArraySegment<byte> segment = rst.SerializePooledSegment();
+        SendUnreliableUnordered(segment, endPoint);
+        _metrics.PacketSent(Packets.Packets.Controls.Rst, reliable: false, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
     }
 
     private void AddRetransmitter(PooledArraySegment<byte> segment, IPEndPoint endPoint)
@@ -217,29 +243,31 @@ internal class Connector : IDisposable
 
     private void OnRetransmitterExpired(object sender, EndPointEventArgs e)
     {
-        Console.WriteLine($"Resetting {e.EndPoint} from {_channel.LocalEndPoint}");
         TryReset(e.EndPoint);
     }
 
     private void OnAckRecv(object sender, PacketEvent<Ack> e)
     {
         Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
-        Console.WriteLine($"Got an ack for {e.Packet.Header.Ack} {_channel.LocalEndPoint} from {e.EndPoint}");
+        _logger.LogInformation("Got an ack for {Ack} {LocalEndPoint} from {EndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint, e.EndPoint);
         if (retransmitter != null)
         {
-            Console.WriteLine($"Removed retransmitter for {e.Packet.Header.Ack} {_channel.LocalEndPoint}");
             retransmitter.Expired -= OnRetransmitterExpired;
             retransmitter.Dispose();
+            _logger.LogInformation("Removed retransmitter for {Ack} {LocalEndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint);
         }
+        _metrics.PacketRecv(Packets.Packets.Controls.Ack, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
     }
 
     private void OnSynRecv(object sender, PacketEvent<Syn> e)
     {
         _synBuffer.Enqueue(e);
+        _metrics.PacketRecv(Packets.Packets.Controls.Syn, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
     }
 
     private void OnRstRecv(object sender, PacketEvent<Rst> e)
     {
         _rstBuffer.Enqueue(e);
+        _metrics.PacketRecv(Packets.Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
     }
 }

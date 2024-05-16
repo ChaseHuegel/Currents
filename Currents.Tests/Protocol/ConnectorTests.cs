@@ -1,17 +1,25 @@
 using System.Diagnostics;
 using System.Net;
 using Currents.Protocol;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
+using Microsoft.Extensions.Logging;
+using Microsoft.VisualBasic;
 using Microsoft.VisualStudio.TestPlatform.ObjectModel;
 
 namespace Currents.Tests.Protocol;
 
-public class ConnectorTests
+public partial class ConnectorTests
 {
     [Test]
     [Timeout(5000)]
-    public async Task Close_Succeeds()
+    public async Task Server_Close_Succeeds()
     {
-        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        using var meterFactory = new TestMeterFactory();
+        var serverMetrics = new ConnectorMetrics(meterFactory);
+
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         _ = Task.Run(AcceptConnection);
         Task AcceptConnection()
@@ -30,8 +38,15 @@ public class ConnectorTests
     [Timeout(5000)]
     public async Task Connect_AfterReopen_Succeeds()
     {
-        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0));
-        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        ILogger clientLogger = loggerFactory.CreateLogger<Connector>();
+        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        using var meterFactory = new TestMeterFactory();
+        var clientMetrics = new ConnectorMetrics(meterFactory);
+        var serverMetrics = new ConnectorMetrics(meterFactory);
+
+        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         _ = Task.Run(AcceptConnection);
         await Task.Delay(5);
@@ -57,8 +72,22 @@ public class ConnectorTests
     [Timeout(5000)]
     public void Connect_Insecure_IPv4_Succeeds()
     {
-        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0));
-        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        ILogger clientLogger = loggerFactory.CreateLogger<Connector>();
+        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        using var meterFactory = new TestMeterFactory();
+        var clientMetrics = new ConnectorMetrics(meterFactory);
+        var serverMetrics = new ConnectorMetrics(meterFactory);
+
+        var recvPacketCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.RecvPacketMeterName);
+        var recvBytesCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.RecvBytesMeterName);
+        var sentPacketCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.SentPacketMeterName);
+        var sentBytesCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.SentBytesMeterName);
+        var connectionOpenedCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.ConnectionOpenedMeterName);
+        var connectionAcceptedCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.ConnectionAcceptedMeterName);
+
+        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         Task.Run(AcceptConnection);
         Task AcceptConnection()
@@ -69,6 +98,13 @@ public class ConnectorTests
 
         bool connected = client.Connect(new IPEndPoint(IPAddress.Loopback, 4321));
 
+        var recvPackets = recvPacketCollector.GetMeasurementSnapshot();
+        var recvBytes = recvBytesCollector.GetMeasurementSnapshot();
+        var sentPackets = sentPacketCollector.GetMeasurementSnapshot();
+        var sentBytes = sentBytesCollector.GetMeasurementSnapshot();
+        var conenctionsOpened = connectionOpenedCollector.GetMeasurementSnapshot();
+        var connectionsAccepted = connectionAcceptedCollector.GetMeasurementSnapshot();
+
         Assert.That(connected, Is.True);
     }
 
@@ -76,8 +112,15 @@ public class ConnectorTests
     [Timeout(5000)]
     public void Connect_Insecure_IPv6_Succeeds()
     {
-        using var client = new Connector(new IPEndPoint(IPAddress.IPv6Any, 0));
-        using var server = new Connector(new IPEndPoint(IPAddress.IPv6Any, 4321));
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        ILogger clientLogger = loggerFactory.CreateLogger<Connector>();
+        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        using var meterFactory = new TestMeterFactory();
+        var clientMetrics = new ConnectorMetrics(meterFactory);
+        var serverMetrics = new ConnectorMetrics(meterFactory);
+
+        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         Task.Run(AcceptConnection);
         Task AcceptConnection()
@@ -102,7 +145,21 @@ public class ConnectorTests
     [Timeout(10000)]
     public async Task Accept_ManySimultaneous_Succeeds(int connections)
     {
-        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        ILogger clientLogger = loggerFactory.CreateLogger<Connector>();
+        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        using var meterFactory = new TestMeterFactory();
+        var clientMetrics = new ConnectorMetrics(meterFactory);
+        var serverMetrics = new ConnectorMetrics(meterFactory);
+
+        var recvPacketCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.RecvPacketMeterName);
+        var recvBytesCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.RecvBytesMeterName);
+        var sentPacketCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.SentPacketMeterName);
+        var sentBytesCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.SentBytesMeterName);
+        var connectionOpenedCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.ConnectionOpenedMeterName);
+        var connectionAcceptedCollector = new MetricCollector<int>(meterFactory, ConnectorMetrics.MeterName, ConnectorMetrics.ConnectionAcceptedMeterName);
+
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         _ = Task.Run(AcceptManyConnections);
         Task AcceptManyConnections()
@@ -116,7 +173,7 @@ public class ConnectorTests
         var connectTasks = new List<Task>();
         for (int i = 0; i < connections; i++)
         {
-            var client = new Connector(new IPEndPoint(IPAddress.Any, 0));
+            var client = new Connector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
             var task = Task.Run(ConnectClient);
             connectTasks.Add(task);
 
@@ -136,6 +193,13 @@ public class ConnectorTests
         Stopwatch sw = Stopwatch.StartNew();
         await Task.WhenAll(connectTasks);
         sw.Stop();
+
+        var recvPackets = recvPacketCollector.GetMeasurementSnapshot();
+        var recvBytes = recvBytesCollector.GetMeasurementSnapshot();
+        var sentPackets = sentPacketCollector.GetMeasurementSnapshot();
+        var sentBytes = sentBytesCollector.GetMeasurementSnapshot();
+        var connectionsOpened = connectionOpenedCollector.GetMeasurementSnapshot();
+        var connectionsAccepted = connectionAcceptedCollector.GetMeasurementSnapshot();
 
         Console.WriteLine($"Accepting {connections} clients took {sw.ElapsedMilliseconds}ms");
     }

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Currents.Protocol;
+using Microsoft.Extensions.Logging;
 
 namespace Currents.Tests.Protocol;
 
@@ -12,8 +13,15 @@ public class SpeedTests
     [Timeout(5000)]
     public void CRNT_Connect_Insecure_IPv4()
     {
-        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0));
-        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321));
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        ILogger clientLogger = loggerFactory.CreateLogger<Connector>();
+        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        using var meterFactory = new TestMeterFactory();
+        var clientMetrics = new ConnectorMetrics(meterFactory);
+        var serverMetrics = new ConnectorMetrics(meterFactory);
+
+        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
+        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         Task.Run(AcceptConnection);
         Task AcceptConnection()

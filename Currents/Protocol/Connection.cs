@@ -41,4 +41,9 @@ public readonly struct Connection : IEquatable<IPEndPoint>
     {
         return EndPoint.Equals(other);
     }
+
+    public override string ToString()
+    {
+        return EndPoint.ToString();
+    }
 }

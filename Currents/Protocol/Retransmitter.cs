@@ -100,6 +100,5 @@ internal class Retransmitter : IDisposable
         _data = dataCopy;
         _retransmissions++;
         _timer.Start();
-        Console.WriteLine($"Retransmit from {_channel.LocalEndPoint} to {_endPoint}");
     }
 }

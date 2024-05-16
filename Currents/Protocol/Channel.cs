@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
-using Currents.Protocol.Packets;
 using Currents.Security.Cryptography;
 using Currents.Utils;
 
