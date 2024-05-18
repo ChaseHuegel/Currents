@@ -44,6 +44,19 @@ internal class Connector : IDisposable
 
     public void Dispose()
     {
+        for (int i = 0; i < _retransmitters.Length; i++)
+        {
+            Retransmitter? retransmitter = _retransmitters[i];
+            if (retransmitter != null)
+            {
+                retransmitter.Expired -= OnRetransmitterExpired;
+                retransmitter.Dispose();
+            }
+        }
+
+        _packetConsumer.AckRecv -= OnAckRecv;
+        _packetConsumer.SynRecv -= OnSynRecv;
+        _packetConsumer.RstRecv -= OnRstRecv;
         _packetConsumer.Dispose();
         _channel.Dispose();
     }

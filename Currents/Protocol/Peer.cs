@@ -95,7 +95,7 @@ public class Peer : IEquatable<Peer>, IDisposable
 
     public bool Equals(Peer other)
     {
-        return Connection.Equals(other.Connection);
+        return Connection.Equals(other.Connection) && _channel.Equals(other._channel);
     }
 
     public override bool Equals(object obj)
@@ -115,6 +115,6 @@ public class Peer : IEquatable<Peer>, IDisposable
 
     public override int GetHashCode()
     {
-        return Connection.GetHashCode();
+        return Connection.GetHashCode() * 17 + _channel.GetHashCode();
     }
 }
