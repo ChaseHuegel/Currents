@@ -2,7 +2,7 @@ using System.Net;
 
 namespace Currents.Protocol;
 
-internal readonly struct RecvEvent(IPEndPoint endPoint, PooledArraySegment<byte> data) : IDisposable
+internal class RecvEvent(IPEndPoint endPoint, PooledArraySegment<byte> data) : IDisposable
 {
     public IPEndPoint EndPoint => _endPoint;
     public PooledArraySegment<byte> Data => _data;

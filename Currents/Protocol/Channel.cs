@@ -154,7 +154,7 @@ internal class Channel : IDisposable
 
             if (_recvQueue[_recvDequeueIndex] == null)
             {
-                recvEvent = default;
+                recvEvent = null!;
                 return false;
             }
 
@@ -214,7 +214,7 @@ internal class Channel : IDisposable
 
     private RecvEvent DequeueRecvEvent()
     {
-        RecvEvent recvEvent = _recvQueue[_recvDequeueIndex]!.Value;
+        RecvEvent recvEvent = _recvQueue[_recvDequeueIndex]!;
         _recvQueue[_recvDequeueIndex] = null;
         _recvDequeueIndex++;
         return recvEvent;
@@ -284,7 +284,7 @@ internal class Channel : IDisposable
 
                 while (_sendQueue[_sendDequeueIndex] != null)
                 {
-                    SendEvent sendEvent = _sendQueue[_sendDequeueIndex]!.Value;
+                    SendEvent sendEvent = _sendQueue[_sendDequeueIndex]!;
                     _sendQueue[_sendDequeueIndex] = null;
                     _sendDequeueIndex++;
 

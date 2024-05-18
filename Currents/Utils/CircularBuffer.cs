@@ -1,13 +1,13 @@
 namespace Currents.Utils;
 
-internal class CircularBuffer<T>(int size) : IDisposable where T : struct
+internal class CircularBuffer<T>(int size) : IDisposable
 {
     private volatile int _dequeueIndex;
     private volatile int _enqueueIndex;
 
     private readonly object _dequeueLock = new();
     private readonly object _enqueueLock = new();
-    private readonly T?[] _queue = new T?[size];
+    private readonly T[] _queue = new T[size];
     private readonly AutoResetEvent _signal = new(false);
 
     public void Dispose()
@@ -26,7 +26,7 @@ internal class CircularBuffer<T>(int size) : IDisposable where T : struct
 
             if (_queue[_dequeueIndex] == null)
             {
-                item = default;
+                item = default!;
                 return false;
             }
 
@@ -69,8 +69,8 @@ internal class CircularBuffer<T>(int size) : IDisposable where T : struct
 
     private T Dequeue()
     {
-        T item = _queue[_dequeueIndex]!.Value;
-        _queue[_dequeueIndex] = null;
+        T item = _queue[_dequeueIndex];
+        _queue[_dequeueIndex] = default!;
 
         if (_dequeueIndex >= _queue.Length - 1)
         {

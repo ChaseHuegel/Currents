@@ -20,7 +20,6 @@ public readonly struct Connection : IEquatable<IPEndPoint>
     }
 
     public static implicit operator IPEndPoint(Connection connection) => connection.EndPoint;
-    public static explicit operator Connection(IPEndPoint endPoint) => new(endPoint);
 
     public override bool Equals(object obj)
     {

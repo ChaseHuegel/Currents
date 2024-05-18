@@ -8,6 +8,8 @@ namespace Currents.Protocol;
 
 internal class Connector : IDisposable
 {
+    private const int BufferSize = 256;
+
     public Channel Channel => _channel;
     public bool Connected { get; private set; }
 
@@ -15,10 +17,10 @@ internal class Connector : IDisposable
     private Syn _syn;
     private volatile byte _sequence;
     private readonly PacketConsumer _packetConsumer;
-    private readonly HashSet<Connection> _connections = [];
-    private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(256);
-    private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(256);
-    private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
+    private readonly Dictionary<IPEndPoint, Peer> _peers = [];
+    private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(BufferSize);
+    private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(BufferSize);
+    private readonly Retransmitter?[] _retransmitters = new Retransmitter?[BufferSize];
     private readonly ILogger _logger;
     private readonly ConnectorMetrics _metrics;
 
@@ -48,11 +50,11 @@ internal class Connector : IDisposable
 
     public void Close()
     {
-        lock (_connections)
+        lock (_peers)
         {
-            foreach (Connection connection in _connections)
+            foreach (Peer client in _peers.Values)
             {
-                TryReset(connection);
+                TryReset(client);
             }
         }
 
@@ -122,7 +124,7 @@ internal class Connector : IDisposable
         return syn;
     }
 
-    public void Accept()
+    public Peer Accept()
     {
         Open();
 
@@ -138,11 +140,19 @@ internal class Connector : IDisposable
             }
 
             var connection = new Connection(recv.EndPoint, clientSyn);
-            lock (_connections)
+
+            Peer client;
+            lock (_peers)
             {
-                if (!_connections.Contains(connection))
+                if (!_peers.ContainsKey(connection))
                 {
-                    _connections.Add(connection);
+                    client = new Peer(connection, _channel, BufferSize);
+                    _peers.Add(connection, client);
+                }
+                else
+                {
+                    //  Ignore syns sent from an already established client.
+                    continue;
                 }
             }
 
@@ -152,26 +162,38 @@ internal class Connector : IDisposable
             clientSyn.Header.Ack = clientSyn.Header.Sequence;
             clientSyn.Header.Sequence = _sequence;
             SendSyn(connection, clientSyn, false);
+
             _logger.LogInformation("Accepted {EndPoint} from {LocalEndPoint} with ack {Ack}", connection, _channel.LocalEndPoint, clientSyn.Header.Ack);
             _metrics.AcceptedConnection(connection, _channel.LocalEndPoint);
-            return;
+            return client;
         }
     }
 
     public bool TryReset(IPEndPoint endPoint)
     {
-        lock (_connections)
+        lock (_peers)
         {
-            if (!_connections.TryGetValue((Connection)endPoint, out Connection connection))
+            if (!_peers.TryGetValue(endPoint, out Peer client))
             {
                 return false;
             }
 
-            _connections.Remove(connection);
+            return TryReset(client);
+        }
+    }
+
+    public bool TryReset(Peer peer)
+    {
+        lock (_peers)
+        {
+            if (!_peers.Remove(peer))
+            {
+                return false;
+            }
 
             //  TODO include current ack for the connection
-            SendRst(endPoint, 0);
-            _logger.LogInformation("Reset {EndPoint} from {LocalEndPoint}", endPoint, _channel.LocalEndPoint);
+            SendRst(peer.Connection.EndPoint, 0);
+            _logger.LogInformation("Reset {EndPoint} from {LocalEndPoint}.", peer.Connection.EndPoint, _channel.LocalEndPoint);
             return true;
         }
     }
@@ -248,15 +270,32 @@ internal class Connector : IDisposable
 
     private void OnAckRecv(object sender, PacketEvent<Ack> e)
     {
+        _metrics.PacketRecv(Packets.Packets.Controls.Ack, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+
         Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
         _logger.LogInformation("Got an ack for {Ack} {LocalEndPoint} from {EndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint, e.EndPoint);
+
         if (retransmitter != null)
         {
             retransmitter.Expired -= OnRetransmitterExpired;
             retransmitter.Dispose();
             _logger.LogInformation("Removed retransmitter for {Ack} {LocalEndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint);
         }
-        _metrics.PacketRecv(Packets.Packets.Controls.Ack, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+
+        if (e.Packet.Data == null || e.Packet.Data.Length <= 0)
+        {
+            return;
+        }
+
+        lock (_peers)
+        {
+            if (!_peers.TryGetValue(e.EndPoint, out Peer peer))
+            {
+                return;
+            }
+
+            peer.Produce(e.Packet.Data);
+        }
     }
 
     private void OnSynRecv(object sender, PacketEvent<Syn> e)
