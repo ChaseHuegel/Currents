@@ -4,6 +4,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
 {
     private volatile int _dequeueIndex;
     private volatile int _enqueueIndex;
+    private volatile int _queueSize = 0;
 
     private readonly object _dequeueLock = new();
     private readonly object _enqueueLock = new();
@@ -19,15 +20,9 @@ internal class CircularBuffer<T>(int size) : IDisposable
     {
         lock (_dequeueLock)
         {
-            if (_queue[_dequeueIndex] == null)
+            if (_queueSize <= 0)
             {
                 _signal.WaitOne(timeoutMs);
-            }
-
-            if (_queue[_dequeueIndex] == null)
-            {
-                item = default!;
-                return false;
             }
 
             item = Dequeue();
@@ -39,7 +34,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
     {
         lock (_dequeueLock)
         {
-            while (_queue[_dequeueIndex] == null)
+            if (_queueSize <= 0)
             {
                 _signal.WaitOne();
             }
@@ -48,7 +43,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
         }
     }
 
-    public void Enqueue(T item)
+    public void Produce(T item)
     {
         lock (_enqueueLock)
         {
@@ -64,6 +59,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
             }
         }
 
+        Interlocked.Increment(ref _queueSize);
         _signal.Set();
     }
 
@@ -81,6 +77,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
             _dequeueIndex++;
         }
 
+        Interlocked.Decrement(ref _queueSize);
         return item;
     }
 }
