@@ -15,8 +15,8 @@ public class Peer : IEquatable<Peer>, IDisposable
     private readonly Channel _channel;
     private readonly CircularBuffer<byte[]> _recvBuffer;
 
-    public static implicit operator Connection(Peer client) => client.Connection;
-    public static implicit operator IPEndPoint(Peer client) => client.Connection.EndPoint;
+    public static implicit operator Connection(Peer peer) => peer.Connection;
+    public static implicit operator IPEndPoint(Peer peer) => peer.Connection.EndPoint;
 
     internal Peer(Connection connection, Channel channel, int bufferSize)
     {
@@ -42,7 +42,7 @@ public class Peer : IEquatable<Peer>, IDisposable
 
         if (!_isConnected)
         {
-            throw new CrntException("The client is disconnected.");
+            throw new CrntException("The peer is disconnected.");
         }
 
         _channel.Send(segment, Connection.EndPoint);
@@ -57,7 +57,7 @@ public class Peer : IEquatable<Peer>, IDisposable
 
         if (!_isConnected)
         {
-            throw new CrntException("The client is disconnected.");
+            throw new CrntException("The peer is disconnected.");
         }
 
         return _recvBuffer.TryConsume(out packet, timeoutMs);
@@ -72,7 +72,7 @@ public class Peer : IEquatable<Peer>, IDisposable
 
         if (!_isConnected)
         {
-            throw new CrntException("The client is disconnected.");
+            throw new CrntException("The peer is disconnected.");
         }
 
         return _recvBuffer.Consume();
@@ -87,7 +87,7 @@ public class Peer : IEquatable<Peer>, IDisposable
 
         if (!_isConnected)
         {
-            throw new CrntException("The client is disconnected.");
+            throw new CrntException("The peer is disconnected.");
         }
 
         _recvBuffer.Enqueue(packet);
@@ -105,9 +105,9 @@ public class Peer : IEquatable<Peer>, IDisposable
             return false;
         }
 
-        if (obj is Peer client)
+        if (obj is Peer peer)
         {
-            return Equals(client);
+            return Equals(peer);
         }
 
         return false;
