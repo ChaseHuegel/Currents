@@ -90,7 +90,7 @@ public class Peer : IEquatable<Peer>, IDisposable
             throw new CrntException("The peer is disconnected.");
         }
 
-        _recvBuffer.Enqueue(packet);
+        _recvBuffer.Produce(packet);
     }
 
     public bool Equals(Peer other)
