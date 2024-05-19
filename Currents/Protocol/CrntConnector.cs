@@ -132,7 +132,7 @@ public class CrntConnector : IDisposable
         return newPeer;
     }
 
-    public void Broadcast(PooledArraySegment<byte> segment)
+    public void Broadcast(byte[] data)
     {
         lock (_connections)
         {
@@ -145,7 +145,7 @@ public class CrntConnector : IDisposable
                     continue;
                 }
 
-                peer.Send(segment);
+                peer.Send(data);
             }
         }
     }

@@ -1,3 +1,4 @@
+using Currents.Protocol.Packets;
 using Currents.Utils;
 
 namespace Currents.Protocol;
@@ -26,7 +27,7 @@ public class Peer : IEquatable<Peer>, IDisposable
         _recvBuffer.Dispose();
     }
 
-    public void Send(PooledArraySegment<byte> segment)
+    public void Send(byte[] data)
     {
         if (_disposed)
         {
@@ -38,6 +39,9 @@ public class Peer : IEquatable<Peer>, IDisposable
             throw new CrntException($"The {nameof(Peer)} is not connected.");
         }
 
+        //  TODO implement sequencing and acks
+        var packet = Packets.Packets.NewAck(0, 0, data);
+        var segment = packet.SerializePooledSegment();
         _channel.Send(segment, Connection.EndPoint);
     }
 

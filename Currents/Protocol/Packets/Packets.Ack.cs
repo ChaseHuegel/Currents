@@ -4,15 +4,16 @@ namespace Currents.Protocol.Packets;
 
 internal static partial class Packets
 {
-    public static Ack NewAck(byte sequence, byte ack)
+    public static Ack NewAck(byte sequence, byte ack, byte[]? data = null)
     {
         return new Ack()
         {
             Header = {
                 Controls = (byte)Controls.Ack,
                 Sequence = sequence,
-                Ack = ack
-            }
+                Ack = ack,
+            },
+            Data = data
         };
     }
 
