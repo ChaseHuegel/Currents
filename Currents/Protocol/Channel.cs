@@ -14,8 +14,11 @@ internal class Channel : IDisposable
         public bool IPv6Only = false;
     }
 
+    public Socket Socket => _socket;
+
     public IPEndPoint LocalEndPoint => _localEndPoint;
     public IPEndPoint RemoteEndPoint => _remoteEndPoint;
+
     public bool IsOpen
     {
         get

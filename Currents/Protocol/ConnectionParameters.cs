@@ -2,7 +2,7 @@ using Currents.Protocol.Packets;
 
 namespace Currents.Protocol;
 
-internal struct ConnectionParameters
+public struct ConnectionParameters
 {
     /// <summary>
     /// The version field contains the version of RUDP.  The initial version is one (1).

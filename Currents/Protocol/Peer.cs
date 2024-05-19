@@ -1,35 +1,28 @@
-using System.Net;
 using Currents.Utils;
 
 namespace Currents.Protocol;
 
 public class Peer : IEquatable<Peer>, IDisposable
 {
-    public bool IsConnected => _isConnected;
+    public bool IsConnected => !_disposed && _channel.IsOpen;
 
-    public readonly Connection Connection;
+    internal readonly Connection Connection;
 
     private volatile bool _disposed;
-    private volatile bool _isConnected;
 
     private readonly Channel _channel;
     private readonly CircularBuffer<byte[]> _recvBuffer;
-
-    public static implicit operator Connection(Peer peer) => peer.Connection;
-    public static implicit operator IPEndPoint(Peer peer) => peer.Connection.EndPoint;
 
     internal Peer(Connection connection, Channel channel, int bufferSize)
     {
         Connection = connection;
         _channel = channel;
         _recvBuffer = new CircularBuffer<byte[]>(bufferSize);
-        _isConnected = true;
     }
 
     public void Dispose()
     {
         _disposed = true;
-        _isConnected = false;
         _recvBuffer.Dispose();
     }
 
@@ -40,9 +33,9 @@ public class Peer : IEquatable<Peer>, IDisposable
             throw new ObjectDisposedException(nameof(Peer));
         }
 
-        if (!_isConnected)
+        if (!IsConnected)
         {
-            throw new CrntException("The peer is disconnected.");
+            throw new CrntException($"The {nameof(Peer)} is not connected.");
         }
 
         _channel.Send(segment, Connection.EndPoint);
@@ -55,9 +48,9 @@ public class Peer : IEquatable<Peer>, IDisposable
             throw new ObjectDisposedException(nameof(Peer));
         }
 
-        if (!_isConnected)
+        if (!IsConnected)
         {
-            throw new CrntException("The peer is disconnected.");
+            throw new CrntException($"The {nameof(Peer)} is not connected.");
         }
 
         return _recvBuffer.TryConsume(out packet, timeoutMs);
@@ -70,9 +63,9 @@ public class Peer : IEquatable<Peer>, IDisposable
             throw new ObjectDisposedException(nameof(Peer));
         }
 
-        if (!_isConnected)
+        if (!IsConnected)
         {
-            throw new CrntException("The peer is disconnected.");
+            throw new CrntException($"The {nameof(Peer)} is not connected.");
         }
 
         return _recvBuffer.Consume();
@@ -85,9 +78,9 @@ public class Peer : IEquatable<Peer>, IDisposable
             throw new ObjectDisposedException(nameof(Peer));
         }
 
-        if (!_isConnected)
+        if (!IsConnected)
         {
-            throw new CrntException("The peer is disconnected.");
+            throw new CrntException($"The {nameof(Peer)} is not connected.");
         }
 
         _recvBuffer.Produce(packet);

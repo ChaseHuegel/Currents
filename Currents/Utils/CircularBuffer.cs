@@ -20,7 +20,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
     {
         lock (_dequeueLock)
         {
-            if (_queueSize <= 0)
+            while (_queueSize <= 0)
             {
                 _signal.WaitOne(timeoutMs);
             }
@@ -34,7 +34,7 @@ internal class CircularBuffer<T>(int size) : IDisposable
     {
         lock (_dequeueLock)
         {
-            if (_queueSize <= 0)
+            while (_queueSize <= 0)
             {
                 _signal.WaitOne();
             }

@@ -1,12 +1,21 @@
 using Currents.Protocol.Packets;
+using Currents.Utils;
 
 namespace Currents.Protocol;
 
 internal class PacketConsumer : IDisposable
 {
+    private const int PacketBufferSize = 256;
+
+    public bool Active => _open;
+
     public EventHandler<PacketEvent<Syn>>? SynRecv;
     public EventHandler<PacketEvent<Ack>>? AckRecv;
     public EventHandler<PacketEvent<Rst>>? RstRecv;
+
+    public CircularBuffer<PacketEvent<Ack>> AckBuffer => _ackBuffer;
+    public CircularBuffer<PacketEvent<Syn>> SynBuffer => _synBuffer;
+    public CircularBuffer<PacketEvent<Rst>> RstBuffer => _rstBuffer;
 
     private bool _disposed;
     private Thread? _consumeThread;
@@ -16,6 +25,9 @@ internal class PacketConsumer : IDisposable
     private readonly Channel _channel;
     private readonly object _stateLock = new();
     private readonly EventWaitHandle _consumeCloseHandle = new(false, EventResetMode.ManualReset);
+    private readonly CircularBuffer<PacketEvent<Ack>> _ackBuffer = new(PacketBufferSize);
+    private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(PacketBufferSize);
+    private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(PacketBufferSize);
 
     public PacketConsumer(Channel channel)
     {
@@ -137,19 +149,25 @@ internal class PacketConsumer : IDisposable
                 if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
                 {
                     Ack ack = Ack.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-                    AckRecv?.Invoke(this, new PacketEvent<Ack>(ack, recvEvent.EndPoint, recvEvent.Data.Count));
+                    var packetEvent = new PacketEvent<Ack>(ack, recvEvent.EndPoint, recvEvent.Data.Count);
+                    _ackBuffer.Produce(packetEvent);
+                    AckRecv?.Invoke(this, packetEvent);
                 }
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
                 {
                     Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-                    SynRecv?.Invoke(this, new PacketEvent<Syn>(syn, recvEvent.EndPoint, recvEvent.Data.Count));
+                    var packetEvent = new PacketEvent<Syn>(syn, recvEvent.EndPoint, recvEvent.Data.Count);
+                    _synBuffer.Produce(packetEvent);
+                    SynRecv?.Invoke(this, packetEvent);
                 }
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Rst) != 0)
                 {
                     Rst rst = Rst.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-                    RstRecv?.Invoke(this, new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count));
+                    var packetEvent = new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count);
+                    _rstBuffer.Produce(packetEvent);
+                    RstRecv?.Invoke(this, packetEvent);
                 }
             }
         }

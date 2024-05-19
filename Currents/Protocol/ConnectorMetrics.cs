@@ -3,7 +3,7 @@ using System.Net;
 
 namespace Currents.Protocol;
 
-internal class ConnectorMetrics
+public class ConnectorMetrics
 {
     public const string MeterName = "CRNT.Connector";
     public const string RecvPacketMeterName = "crnt.connector.recv_packet";

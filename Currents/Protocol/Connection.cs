@@ -3,7 +3,7 @@ using Currents.Protocol.Packets;
 
 namespace Currents.Protocol;
 
-public readonly struct Connection : IEquatable<IPEndPoint>
+internal readonly struct Connection : IEquatable<IPEndPoint>
 {
     public IPEndPoint EndPoint { get; }
     public Syn Syn { get; } // TODO replace this with specific params for relevant settings

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Currents.Protocol.Packets;
@@ -6,12 +7,33 @@ using Microsoft.Extensions.Logging;
 
 namespace Currents.Protocol;
 
-internal class Connector : IDisposable
+internal class ConnectionHandler : IDisposable
 {
     private const int PacketBufferSize = 256;
 
     public Channel Channel => _channel;
-    public bool Connected => _peer != null;
+
+    public Peer? Peer
+    {
+        get
+        {
+            lock (_peerLock)
+            {
+                return _peer;
+            }
+        }
+    }
+
+    public bool Connected
+    {
+        get
+        {
+            lock (_peerLock)
+            {
+                return _peer != null;
+            }
+        }
+    }
 
     private Syn _syn;
 
@@ -21,29 +43,31 @@ internal class Connector : IDisposable
     private readonly object _peerLock = new();
 
     private readonly Channel _channel;
-    private readonly PacketConsumer _packetConsumer;
-    private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(PacketBufferSize);
-    private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(PacketBufferSize);
+    private readonly PacketConsumer _consumer;
     private readonly Retransmitter?[] _retransmitters = new Retransmitter?[PacketBufferSize];
     private readonly ILogger _logger;
     private readonly ConnectorMetrics _metrics;
 
-    public Connector(ILogger logger, ConnectorMetrics metrics)
+    public ConnectionHandler(Channel channel, PacketConsumer consumer, ILogger logger, ConnectorMetrics metrics)
     {
         _logger = logger;
         _metrics = metrics;
 
-        _channel = new Channel();
-        _packetConsumer = new PacketConsumer(_channel);
-
-        _packetConsumer.AckRecv += OnAckRecv;
-        _packetConsumer.SynRecv += OnSynRecv;
-        _packetConsumer.RstRecv += OnRstRecv;
+        _channel = channel;
+        _consumer = consumer;
     }
 
-    public Connector(IPEndPoint localEndPoint, ILogger logger, ConnectorMetrics metrics) : this(logger, metrics)
+    public void StartListening()
     {
-        _channel.Bind(localEndPoint);
+        StopListening();
+        _consumer.AckRecv += OnAckRecv;
+        _consumer.RstRecv += OnRstRecv;
+    }
+
+    public void StopListening()
+    {
+        _consumer.AckRecv -= OnAckRecv;
+        _consumer.RstRecv -= OnRstRecv;
     }
 
     public void Dispose()
@@ -61,19 +85,15 @@ internal class Connector : IDisposable
             }
         }
 
-        _packetConsumer.Dispose();
-        _channel.Dispose();
+        StopListening();
     }
 
-    public void Close()
+    public bool TryConnect(IPEndPoint remoteEndPoint, out Peer peer)
     {
-        Reset();
-        _packetConsumer.Stop();
-        _channel.Close();
+        return TryConnect(remoteEndPoint, null, out peer);
     }
 
-
-    public bool Connect(IPEndPoint remoteEndPoint, ConnectionParameters? connectionParameters = null)
+    public bool TryConnect(IPEndPoint remoteEndPoint, ConnectionParameters? connectionParameters, out Peer peer)
     {
         if (remoteEndPoint.AddressFamily == AddressFamily.InterNetwork)
         {
@@ -81,7 +101,7 @@ internal class Connector : IDisposable
         }
 
         Syn requestedSyn;
-        if (connectionParameters.HasValue)
+        if (connectionParameters != null)
         {
             connectionParameters.Value.ValidateAndThrow();
             requestedSyn = Packets.Packets.NewSyn(connectionParameters.Value);
@@ -97,8 +117,7 @@ internal class Connector : IDisposable
         requestedSyn.Options = (byte)Packets.Packets.Options.Reliable;
         _syn = requestedSyn;
 
-        Open();
-
+        StartListening();
         SendSyn(remoteEndPoint, requestedSyn, true);
         _logger.LogInformation("{LocalEndPoint} sending syn with sequence {Sequence} and ack {Ack} to {remoteEndPoint}", _channel.LocalEndPoint, requestedSyn.Header.Sequence, requestedSyn.Header.Ack, remoteEndPoint);
 
@@ -107,19 +126,35 @@ internal class Connector : IDisposable
 
         if (!ValidateServerSyn(serverSyn))
         {
-            //  TODO return a ConnectionResult with details instead of bool
+            SendRst(remoteEndPoint, serverSyn.Header.Sequence);
+            peer = null!;
             return false;
         }
 
-        _syn = serverSyn;
+        var connection = new Connection(recv.EndPoint, serverSyn);
+        peer = new Peer(connection, _channel, PacketBufferSize);
+
         _logger.LogInformation("{LocalEndPoint} connected to {remoteEndPoint}", _channel.LocalEndPoint, remoteEndPoint);
         _metrics.Connected(_channel.LocalEndPoint, remoteEndPoint);
+
+        _syn = serverSyn;
+        _peer = peer;
         return true;
     }
 
     public Peer Accept()
     {
-        Open();
+        if (!_channel.IsOpen)
+        {
+            throw new CrntException($"Unable to {nameof(Accept)}, the channel is closed.");
+        }
+
+        if (_peer != null)
+        {
+            throw new InvalidOperationException($"An active {typeof(Peer)} must be reset before a new one can be accepted.");
+        }
+
+        StartListening();
 
         while (_channel.IsOpen)
         {
@@ -147,18 +182,18 @@ internal class Connector : IDisposable
                 }
 
                 _peer = new Peer(connection, _channel, PacketBufferSize);
+
+                //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
+                _syn = clientSyn;
+                clientSyn.Header.Controls |= (byte)Packets.Packets.Controls.Ack;
+                clientSyn.Header.Ack = clientSyn.Header.Sequence;
+                clientSyn.Header.Sequence = _sequence;
+                SendSyn(connection, clientSyn, false);
+
+                _logger.LogInformation("Accepted {EndPoint} from {LocalEndPoint} with ack {Ack}", connection, _channel.LocalEndPoint, clientSyn.Header.Ack);
+                _metrics.AcceptedConnection(connection, _channel.LocalEndPoint);
+                return _peer;
             }
-
-            //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
-            _syn = clientSyn;
-            clientSyn.Header.Controls |= (byte)Packets.Packets.Controls.Ack;
-            clientSyn.Header.Ack = clientSyn.Header.Sequence;
-            clientSyn.Header.Sequence = _sequence;
-            SendSyn(connection, clientSyn, false);
-
-            _logger.LogInformation("Accepted {EndPoint} from {LocalEndPoint} with ack {Ack}", connection, _channel.LocalEndPoint, clientSyn.Header.Ack);
-            _metrics.AcceptedConnection(connection, _channel.LocalEndPoint);
-            return _peer;
         }
 
         throw new CrntException($"{nameof(Accept)} interruped, the channel was closed.");
@@ -166,22 +201,22 @@ internal class Connector : IDisposable
 
     public void Reset()
     {
-        Peer? peer = _peer;
-        if (peer == null)
+        lock (_peerLock)
         {
-            return;
+            if (_peer == null)
+            {
+                return;
+            }
+
+            StopListening();
+
+            //  TODO include current ack for the connection
+            SendRst(_peer.Connection.EndPoint, 0);
+            _peer.Dispose();
+            _logger.LogInformation("Reset {EndPoint} from {LocalEndPoint}.", _peer.Connection.EndPoint, _channel.LocalEndPoint);
+
+            _peer = null;
         }
-
-        //  TODO include current ack for the connection
-        SendRst(peer.Connection.EndPoint, 0);
-        _logger.LogInformation("Reset {EndPoint} from {LocalEndPoint}.", peer.Connection.EndPoint, _channel.LocalEndPoint);
-        _peer = null;
-    }
-
-    private void Open()
-    {
-        _channel.Open();
-        _packetConsumer.Start();
     }
 
     private bool ValidateServerSyn(Syn syn)
@@ -253,28 +288,33 @@ internal class Connector : IDisposable
 
     private void OnAckRecv(object sender, PacketEvent<Ack> e)
     {
-        _metrics.PacketRecv(Packets.Packets.Controls.Ack, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
-        _logger.LogInformation("Got an ack for {Ack} {LocalEndPoint} from {EndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint, e.EndPoint);
-
-        lock (_retransmitters)
-        {
-            Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
-            if (retransmitter != null)
-            {
-                retransmitter.Expired -= OnRetransmitterExpired;
-                retransmitter.Dispose();
-                _logger.LogInformation("Removed retransmitter for {Ack} {LocalEndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint);
-            }
-        }
-
-        if (e.Packet.Data == null || e.Packet.Data.Length <= 0)
-        {
-            return;
-        }
-
         lock (_peerLock)
         {
             if (_peer == null)
+            {
+                return;
+            }
+
+            if (!e.EndPoint.Equals(_peer.Connection.EndPoint))
+            {
+                return;
+            }
+
+            _metrics.PacketRecv(Packets.Packets.Controls.Ack, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+            _logger.LogInformation("Got an ack for {Ack} {LocalEndPoint} from {EndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint, e.EndPoint);
+
+            lock (_retransmitters)
+            {
+                Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
+                if (retransmitter != null)
+                {
+                    retransmitter.Expired -= OnRetransmitterExpired;
+                    retransmitter.Dispose();
+                    _logger.LogInformation("Removed retransmitter for {Ack} {LocalEndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint);
+                }
+            }
+
+            if (e.Packet.Data == null || e.Packet.Data.Length <= 0)
             {
                 return;
             }
@@ -283,29 +323,36 @@ internal class Connector : IDisposable
         }
     }
 
-    private void OnSynRecv(object sender, PacketEvent<Syn> e)
-    {
-        _synBuffer.Produce(e);
-        _metrics.PacketRecv(Packets.Packets.Controls.Syn, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
-    }
-
     private void OnRstRecv(object sender, PacketEvent<Rst> e)
     {
-        _rstBuffer.Produce(e);
-        _metrics.PacketRecv(Packets.Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+        lock (_peerLock)
+        {
+            if (_peer == null)
+            {
+                return;
+            }
+
+            if (!e.EndPoint.Equals(_peer.Connection.EndPoint))
+            {
+                return;
+            }
+
+            _metrics.PacketRecv(Packets.Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+            Reset();
+        }
     }
 
     private PacketEvent<Syn> RecvSyn(IPEndPoint? remoteEndPoint = null)
     {
         if (remoteEndPoint == null)
         {
-            return _synBuffer.Consume();
+            return _consumer.SynBuffer.Consume();
         }
 
         PacketEvent<Syn> syn;
         do
         {
-            syn = _synBuffer.Consume();
+            syn = _consumer.SynBuffer.Consume();
         } while (!syn.EndPoint.Equals(remoteEndPoint));
 
         return syn;

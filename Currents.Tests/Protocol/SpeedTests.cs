@@ -14,14 +14,14 @@ public class SpeedTests
     public void CRNT_Connect_Insecure_IPv4()
     {
         using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        ILogger clientLogger = loggerFactory.CreateLogger<Connector>();
-        ILogger serverLogger = loggerFactory.CreateLogger<Connector>();
+        ILogger clientLogger = loggerFactory.CreateLogger<ConnectionHandler>();
+        ILogger serverLogger = loggerFactory.CreateLogger<ConnectionHandler>();
         using var meterFactory = new TestMeterFactory();
         var clientMetrics = new ConnectorMetrics(meterFactory);
         var serverMetrics = new ConnectorMetrics(meterFactory);
 
-        using var client = new Connector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
-        using var server = new Connector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
+        using var client = new CrntConnector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
+        using var server = new CrntConnector(new IPEndPoint(IPAddress.Any, 4321), serverLogger, serverMetrics);
 
         Task.Run(AcceptConnection);
         Task AcceptConnection()
@@ -31,7 +31,7 @@ public class SpeedTests
         }
 
         Stopwatch sw = Stopwatch.StartNew();
-        bool connected = client.Connect(new IPEndPoint(IPAddress.Loopback, 4321));
+        bool connected = client.TryConnect(new IPEndPoint(IPAddress.Loopback, 4321));
         sw.Stop();
 
         Console.WriteLine($"CRNT took {sw.ElapsedMilliseconds}ms to connect.");
