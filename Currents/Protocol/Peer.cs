@@ -42,6 +42,7 @@ public class Peer : IEquatable<Peer>, IDisposable
         //  TODO implement sequencing and acks
         var packet = Packets.Packets.NewAck(0, 0, data);
         var segment = packet.SerializePooledSegment();
+        //  TODO support send types (reliable, ordered, sequenced..)
         _channel.Send(segment, Connection.EndPoint);
     }
 
