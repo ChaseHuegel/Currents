@@ -237,20 +237,20 @@ internal class Channel : IDisposable
                     continue;
                 }
 
-                int bytesRec = _socket.ReceiveFrom(_recvBuffer, 0, _recvBuffer.Length, SocketFlags.None, ref _lastRecvEndPoint);
+                int bytesRecv = _socket.ReceiveFrom(_recvBuffer, 0, _recvBuffer.Length, SocketFlags.None, ref _lastRecvEndPoint);
 
                 if (!_open)
                 {
                     break;
                 }
 
-                if (bytesRec < 5)
+                if (bytesRecv < 5)
                 {
                     continue;
                 }
 
                 ushort expectedChecksum = Bytes.ReadUShort(_recvBuffer, 0);
-                ushort actualChecksum = Checksum16.Compute(_recvBuffer, 2, bytesRec - 2);
+                ushort actualChecksum = Checksum16.Compute(_recvBuffer, 2, bytesRecv - 2);
 
                 if (expectedChecksum != actualChecksum)
                 {
@@ -258,9 +258,9 @@ internal class Channel : IDisposable
                     continue;
                 }
 
-                byte[] buffer = _arrayPool.Rent(bytesRec - 2);
-                Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRec - 2);
-                var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRec - 2);
+                byte[] buffer = _arrayPool.Rent(bytesRecv - 2);
+                Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRecv - 2);
+                var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRecv - 2);
 
                 _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
                 _recvEnqueueIndex++;
@@ -294,9 +294,10 @@ internal class Channel : IDisposable
                     int packetLength;
                     using (sendEvent.Data)
                     {
-                        ushort checksum = Checksum16.Compute(sendEvent.Data.Array, sendEvent.Data.Offset, sendEvent.Data.Count);
-                        Bytes.Write(_sendBuffer, 0, checksum);
+                        //  TODO if the checksum is computed from sendEVent.Data.Array instead of _sendBuffer, the checksum in recv mismatches?
                         Buffer.BlockCopy(sendEvent.Data.Array, sendEvent.Data.Offset, _sendBuffer, 2, sendEvent.Data.Count);
+                        ushort checksum = Checksum16.Compute(_sendBuffer, 2, sendEvent.Data.Count);
+                        Bytes.Write(_sendBuffer, 0, checksum);
                         packetLength = sendEvent.Data.Count + 2;
                     }
 
