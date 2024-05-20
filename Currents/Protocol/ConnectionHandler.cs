@@ -62,12 +62,14 @@ internal class ConnectionHandler : IDisposable
         StopListening();
         _consumer.AckRecv += OnAckRecv;
         _consumer.RstRecv += OnRstRecv;
+        _consumer.DataRecv += OnDataRecv;
     }
 
     public void StopListening()
     {
         _consumer.AckRecv -= OnAckRecv;
         _consumer.RstRecv -= OnRstRecv;
+        _consumer.DataRecv -= OnDataRecv;
     }
 
     public void Dispose()
@@ -111,34 +113,38 @@ internal class ConnectionHandler : IDisposable
             requestedSyn = Packets.Packets.NewSyn();
         }
 
-        _sequence = (byte)DateTime.Now.Ticks;
-
-        requestedSyn.Header.Sequence = _sequence;
-        requestedSyn.Options = (byte)Packets.Packets.Options.Reliable;
-        _syn = requestedSyn;
-
-        StartListening();
-        SendSyn(remoteEndPoint, requestedSyn, true);
-        _logger.LogInformation("{LocalEndPoint} sending syn with sequence {Sequence} and ack {Ack} to {remoteEndPoint}", _channel.LocalEndPoint, requestedSyn.Header.Sequence, requestedSyn.Header.Ack, remoteEndPoint);
-
-        PacketEvent<Syn> recv = RecvSyn(remoteEndPoint);
-        Syn serverSyn = recv.Packet;
-
-        if (!ValidateServerSyn(serverSyn))
+        lock (_peerLock)
         {
-            SendRst(remoteEndPoint, serverSyn.Header.Sequence);
-            peer = null!;
-            return false;
-        }
+            _sequence = (byte)DateTime.Now.Ticks;
 
-        var connection = new Connection(recv.EndPoint, serverSyn);
-        peer = new Peer(connection, _channel, PacketBufferSize);
+            requestedSyn.Header.Sequence = _sequence;
+            requestedSyn.Options = (byte)Packets.Packets.Options.Reliable;
+            _syn = requestedSyn;
+
+            StartListening();
+            SendSyn(remoteEndPoint, requestedSyn, true);
+            _logger.LogInformation("{LocalEndPoint} sending syn with sequence {Sequence} and ack {Ack} to {remoteEndPoint}", _channel.LocalEndPoint, requestedSyn.Header.Sequence, requestedSyn.Header.Ack, remoteEndPoint);
+
+            PacketEvent<Syn> recv = RecvSyn(remoteEndPoint);
+            Syn serverSyn = recv.Packet;
+
+            if (!ValidateServerSyn(serverSyn))
+            {
+                SendRst(remoteEndPoint, serverSyn.Header.Sequence);
+                peer = null!;
+                _syn = default;
+                _peer = null;
+                return false;
+            }
+
+            var connection = new Connection(recv.EndPoint, serverSyn);
+            _peer = new Peer(connection, _channel, PacketBufferSize);
+            _syn = serverSyn;
+            peer = _peer;
+        }
 
         _logger.LogInformation("{LocalEndPoint} connected to {remoteEndPoint}", _channel.LocalEndPoint, remoteEndPoint);
         _metrics.Connected(_channel.LocalEndPoint, remoteEndPoint);
-
-        _syn = serverSyn;
-        _peer = peer;
         return true;
     }
 
@@ -313,13 +319,6 @@ internal class ConnectionHandler : IDisposable
                     _logger.LogInformation("Removed retransmitter for {Ack} {LocalEndPoint}", e.Packet.Header.Ack, _channel.LocalEndPoint);
                 }
             }
-
-            if (e.Packet.Data == null || e.Packet.Data.Length <= 0)
-            {
-                return;
-            }
-
-            _peer.Produce(e.Packet.Data);
         }
     }
 
@@ -339,6 +338,24 @@ internal class ConnectionHandler : IDisposable
 
             _metrics.PacketRecv(Packets.Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
             Reset();
+        }
+    }
+
+    private void OnDataRecv(object sender, PacketEvent<byte[]> e)
+    {
+        lock (_peerLock)
+        {
+            if (_peer == null)
+            {
+                return;
+            }
+
+            if (e.Packet == null || e.Packet.Length <= 0)
+            {
+                return;
+            }
+
+            _peer.Produce(e.Packet);
         }
     }
 

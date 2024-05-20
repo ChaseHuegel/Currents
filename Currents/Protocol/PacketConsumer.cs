@@ -12,10 +12,12 @@ internal class PacketConsumer : IDisposable
     public EventHandler<PacketEvent<Syn>>? SynRecv;
     public EventHandler<PacketEvent<Ack>>? AckRecv;
     public EventHandler<PacketEvent<Rst>>? RstRecv;
+    public EventHandler<PacketEvent<byte[]>>? DataRecv;
 
     public CircularBuffer<PacketEvent<Ack>> AckBuffer => _ackBuffer;
     public CircularBuffer<PacketEvent<Syn>> SynBuffer => _synBuffer;
     public CircularBuffer<PacketEvent<Rst>> RstBuffer => _rstBuffer;
+    public CircularBuffer<PacketEvent<byte[]>> DataBuffer => _dataBuffer;
 
     private bool _disposed;
     private Thread? _consumeThread;
@@ -28,6 +30,7 @@ internal class PacketConsumer : IDisposable
     private readonly CircularBuffer<PacketEvent<Ack>> _ackBuffer = new(PacketBufferSize);
     private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(PacketBufferSize);
     private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(PacketBufferSize);
+    private readonly CircularBuffer<PacketEvent<byte[]>> _dataBuffer = new(PacketBufferSize);
 
     public PacketConsumer(Channel channel)
     {
@@ -148,10 +151,32 @@ internal class PacketConsumer : IDisposable
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
                 {
-                    Ack ack = Ack.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+                    bool isPiggybackAck = header.Controls != (byte)Packets.Packets.Controls.Ack;
+
+                    Ack ack;
+                    if (isPiggybackAck)
+                    {
+                        ack = new Ack(header, null);
+                    }
+                    else
+                    {
+                        ack = Ack.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+                    }
+
+                    if (!isPiggybackAck)
+                    {
+                        if (ack.Data != null && ack.Data.Length > 0)
+                        {
+                            var dataEvent = new PacketEvent<byte[]>(ack.Data, recvEvent.EndPoint, recvEvent.Data.Count);
+                            _dataBuffer.Produce(dataEvent);
+                            ScheduleEvent(DataRecv, dataEvent);
+                        }
+                    }
+
+                    ack.Data = null;
                     var packetEvent = new PacketEvent<Ack>(ack, recvEvent.EndPoint, recvEvent.Data.Count);
                     _ackBuffer.Produce(packetEvent);
-                    AckRecv?.Invoke(this, packetEvent);
+                    ScheduleEvent(AckRecv, packetEvent);
                 }
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
@@ -159,15 +184,15 @@ internal class PacketConsumer : IDisposable
                     Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
                     var packetEvent = new PacketEvent<Syn>(syn, recvEvent.EndPoint, recvEvent.Data.Count);
                     _synBuffer.Produce(packetEvent);
-                    SynRecv?.Invoke(this, packetEvent);
+                    ScheduleEvent(SynRecv, packetEvent);
                 }
 
                 if ((header.Controls & (byte)Packets.Packets.Controls.Rst) != 0)
                 {
-                    Rst rst = Rst.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
+                    var rst = new Rst(header);
                     var packetEvent = new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count);
                     _rstBuffer.Produce(packetEvent);
-                    RstRecv?.Invoke(this, packetEvent);
+                    ScheduleEvent(RstRecv, packetEvent);
                 }
             }
         }
@@ -175,4 +200,17 @@ internal class PacketConsumer : IDisposable
         _consumeCloseHandle.Set();
     }
 
+    private void ScheduleEvent<T>(EventHandler<PacketEvent<T>>? eventHandler, PacketEvent<T> packetEvent)
+    {
+        if (eventHandler == null)
+        {
+            return;
+        }
+
+        Task.Run(InvokeAsync);
+        void InvokeAsync()
+        {
+            eventHandler?.Invoke(this, packetEvent);
+        }
+    }
 }
