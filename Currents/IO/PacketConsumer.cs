@@ -168,14 +168,14 @@ internal class PacketConsumer : IDisposable
                     {
                         if (ack.Data != null && ack.Data.Length > 0)
                         {
-                            var dataEvent = new PacketEvent<byte[]>(ack.Data, recvEvent.EndPoint, recvEvent.Data.Count);
+                            var dataEvent = new PacketEvent<byte[]>(ack.Data, recvEvent.EndPoint, recvEvent.Data.Count, header.Sequence, header.Ack);
                             _dataBuffer.Produce(dataEvent);
                             ScheduleEvent(DataRecv, dataEvent);
                         }
                     }
 
                     ack.Data = null;
-                    var packetEvent = new PacketEvent<Ack>(ack, recvEvent.EndPoint, recvEvent.Data.Count);
+                    var packetEvent = new PacketEvent<Ack>(ack, recvEvent.EndPoint, recvEvent.Data.Count, header.Sequence, header.Ack);
                     _ackBuffer.Produce(packetEvent);
                     ScheduleEvent(AckRecv, packetEvent);
                 }
@@ -183,7 +183,7 @@ internal class PacketConsumer : IDisposable
                 if ((header.Controls & (byte)Packets.Controls.Syn) != 0)
                 {
                     Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
-                    var packetEvent = new PacketEvent<Syn>(syn, recvEvent.EndPoint, recvEvent.Data.Count);
+                    var packetEvent = new PacketEvent<Syn>(syn, recvEvent.EndPoint, recvEvent.Data.Count, header.Sequence, header.Ack);
                     _synBuffer.Produce(packetEvent);
                     ScheduleEvent(SynRecv, packetEvent);
                 }
@@ -191,7 +191,7 @@ internal class PacketConsumer : IDisposable
                 if ((header.Controls & (byte)Packets.Controls.Rst) != 0)
                 {
                     var rst = new Rst(header);
-                    var packetEvent = new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count);
+                    var packetEvent = new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count, header.Sequence, header.Ack);
                     _rstBuffer.Produce(packetEvent);
                     ScheduleEvent(RstRecv, packetEvent);
                 }

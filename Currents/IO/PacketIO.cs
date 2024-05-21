@@ -93,7 +93,7 @@ internal class PacketIO : IDisposable
         var segment = packet.SerializePooledSegment();
 
         //  TODO support send types (reliable, ordered, sequenced..)
-        SendUnreliableUnordered(segment, endPoint);
+        SendReliableUnordered(segment, endPoint);
     }
 
     public void SendUnreliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint)
@@ -124,27 +124,28 @@ internal class PacketIO : IDisposable
 
     public void SendRst(IPEndPoint endPoint, byte? ack = null)
     {
-        Rst rst = Packets.NewRst(_sequence, ack ?? _ack);
+        Rst packet = Packets.NewRst(_sequence, ack ?? _ack);
 
-        PooledArraySegment<byte> segment = rst.SerializePooledSegment();
+        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
         SendUnreliableUnordered(segment, endPoint);
 
         _metrics.PacketSent(Packets.Controls.Rst, reliable: false, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
     }
 
-    public void SendSyn(IPEndPoint endPoint, Syn syn, bool reliable)
+    public void SendAck(IPEndPoint endPoint, byte ack)
     {
-        PooledArraySegment<byte> segment = syn.SerializePooledSegment();
-        if (reliable)
+        if (ack < _ack)
         {
-            SendReliableUnordered(segment, endPoint);
-        }
-        else
-        {
-            SendUnreliableUnordered(segment, endPoint);
+            //  TODO implement sliding window
+            _ack = ack;
         }
 
-        _metrics.PacketSent(Packets.Controls.Syn, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
+        Ack packet = Packets.NewAck(_sequence, ack);
+
+        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
+        SendUnreliableUnordered(segment, endPoint);
+
+        _metrics.PacketSent(Packets.Controls.Ack, reliable: false, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
     }
 
     private void AddRetransmitter(PooledArraySegment<byte> segment, IPEndPoint endPoint)
@@ -175,6 +176,7 @@ internal class PacketIO : IDisposable
     private void OnDataRecv(object sender, PacketEvent<byte[]> e)
     {
         RecvBuffer.Produce(e.Packet);
+        SendAck(e.EndPoint, e.Sequence);
     }
 
 }
