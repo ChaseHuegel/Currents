@@ -1,5 +1,5 @@
 #version 1.0;
-#namespace Currents.Protocol.Packets;
+#namespace Currents.Protocol;
 
 message Packet
 {

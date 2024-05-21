@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace Currents.Protocol;
+namespace Currents.Events;
 
 internal readonly struct PacketEvent<T>(T packet, IPEndPoint endPoint, int bytes)
 {

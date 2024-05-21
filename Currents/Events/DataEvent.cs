@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace Currents.Protocol;
+namespace Currents.Events;
 
 public readonly struct DataEvent(IPEndPoint endPoint, byte[] data)
 {

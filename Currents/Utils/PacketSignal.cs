@@ -1,4 +1,6 @@
 using System.Net;
+using Currents.Events;
+using Currents.IO;
 
 namespace Currents.Protocol;
 

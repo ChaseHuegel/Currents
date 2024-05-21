@@ -1,5 +1,4 @@
-
-namespace Currents.Protocol;
+namespace Currents.Events;
 
 using System.Net;
 

@@ -1,7 +1,8 @@
 using System.Diagnostics.Metrics;
 using System.Net;
+using Currents.Protocol;
 
-namespace Currents.Protocol;
+namespace Currents.Metrics;
 
 public class ConnectorMetrics
 {
@@ -31,13 +32,13 @@ public class ConnectorMetrics
         _connectionsAccepted = meter.CreateCounter<int>(ConnectionAcceptedMeterName);
     }
 
-    internal void PacketRecv(Packets.Packets.Controls type, int bytes, IPEndPoint source, IPEndPoint destination)
+    internal void PacketRecv(Packets.Controls type, int bytes, IPEndPoint source, IPEndPoint destination)
     {
         _packetRecv.Add(1, new KeyValuePair<string, object?>("type", type), new KeyValuePair<string, object?>("source", source), new KeyValuePair<string, object?>("destination", destination));
         _bytesRecv.Add(bytes, new KeyValuePair<string, object?>("type", type), new KeyValuePair<string, object?>("source", source), new KeyValuePair<string, object?>("destination", destination));
     }
 
-    internal void PacketSent(Packets.Packets.Controls type, bool reliable, bool ordered, bool sequenced, int bytes, IPEndPoint source, IPEndPoint destination)
+    internal void PacketSent(Packets.Controls type, bool reliable, bool ordered, bool sequenced, int bytes, IPEndPoint source, IPEndPoint destination)
     {
         _packetSent.Add(1, new KeyValuePair<string, object?>("type", type), new KeyValuePair<string, object?>("reliable", reliable), new KeyValuePair<string, object?>("ordered", ordered), new KeyValuePair<string, object?>("sequenced", sequenced), new KeyValuePair<string, object?>("source", source), new KeyValuePair<string, object?>("destination", destination));
         _bytesSent.Add(bytes, new KeyValuePair<string, object?>("type", type), new KeyValuePair<string, object?>("source", source), new KeyValuePair<string, object?>("destination", destination));

@@ -1,10 +1,12 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
+using Currents.Events;
+using Currents.Protocol;
 using Currents.Security.Cryptography;
 using Currents.Utils;
 
-namespace Currents.Protocol;
+namespace Currents.IO;
 
 internal class Channel : IDisposable
 {
@@ -103,12 +105,14 @@ internal class Channel : IDisposable
             }
 
             _open = true;
-            _recvThread = new Thread(RecvThread) {
+            _recvThread = new Thread(RecvThread)
+            {
                 Name = $"CRNT Recv {LocalEndPoint}"
             };
             _recvThread.Start();
 
-            _sendThread = new Thread(SendThread) {
+            _sendThread = new Thread(SendThread)
+            {
                 Name = $"CRNT Send {LocalEndPoint}"
             };
             _sendThread.Start();

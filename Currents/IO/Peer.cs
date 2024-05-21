@@ -1,7 +1,8 @@
-using Currents.Protocol.Packets;
+using Currents.Metrics;
+using Currents.Protocol;
 using Microsoft.Extensions.Logging;
 
-namespace Currents.Protocol;
+namespace Currents.IO;
 
 public class Peer : IEquatable<Peer>, IDisposable
 {

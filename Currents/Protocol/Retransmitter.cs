@@ -2,6 +2,8 @@
 namespace Currents.Protocol;
 
 using System.Net;
+using Currents.Events;
+using Currents.IO;
 using Timer = System.Timers.Timer;
 
 internal class Retransmitter : IDisposable

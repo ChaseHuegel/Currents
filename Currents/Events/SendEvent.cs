@@ -1,8 +1,9 @@
 using System.Net;
+using Currents.Protocol;
 
-namespace Currents.Protocol;
+namespace Currents.Events;
 
-internal class RecvEvent(IPEndPoint endPoint, PooledArraySegment<byte> data) : IDisposable
+internal class SendEvent(IPEndPoint endPoint, PooledArraySegment<byte> data) : IDisposable
 {
     public IPEndPoint EndPoint => _endPoint;
     public PooledArraySegment<byte> Data => _data;

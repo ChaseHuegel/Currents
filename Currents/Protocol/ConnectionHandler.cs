@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
-using Currents.Protocol.Packets;
+using Currents.Events;
+using Currents.IO;
+using Currents.Metrics;
 using Microsoft.Extensions.Logging;
 
 namespace Currents.Protocol;
@@ -96,11 +98,11 @@ internal class ConnectionHandler : IDisposable
         if (connectionParameters != null)
         {
             connectionParameters.Value.ValidateAndThrow();
-            requestedSyn = Packets.Packets.NewSyn(connectionParameters.Value);
+            requestedSyn = Packets.NewSyn(connectionParameters.Value);
         }
         else
         {
-            requestedSyn = Packets.Packets.NewSyn();
+            requestedSyn = Packets.NewSyn();
         }
 
         lock (_peerLock)
@@ -176,7 +178,7 @@ internal class ConnectionHandler : IDisposable
                 }
 
                 //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
-                clientSyn.Header.Controls |= (byte)Packets.Packets.Controls.Ack;
+                clientSyn.Header.Controls |= (byte)Packets.Controls.Ack;
                 clientSyn.Header.Ack = clientSyn.Header.Sequence;
                 _peer.InOut.MergeSyn(clientSyn);
                 _peer.InOut.SendSyn(connection, clientSyn);
@@ -259,7 +261,7 @@ internal class ConnectionHandler : IDisposable
     private void OnRstRecv(object sender, PacketEvent<Rst> e)
     {
         _logger.LogWarning("Connection to {EndPoint} was reset by the remote.", e.EndPoint);
-        _metrics.PacketRecv(Packets.Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+        _metrics.PacketRecv(Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
         Reset();
     }
 }

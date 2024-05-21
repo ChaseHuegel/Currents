@@ -1,5 +1,7 @@
 using System.Net;
 using System.Runtime.CompilerServices;
+using Currents.Events;
+using Currents.IO;
 
 namespace Currents.Protocol;
 

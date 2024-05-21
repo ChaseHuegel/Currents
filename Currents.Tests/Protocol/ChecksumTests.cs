@@ -1,8 +1,6 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Security.Cryptography;
 using Currents.Protocol;
-using Currents.Protocol.Packets;
 using Currents.Security.Cryptography;
 using Currents.Utils;
 using NUnit.Framework.Internal;

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Currents.IO;
+using Currents.Metrics;
 using Currents.Protocol;
 using Microsoft.Extensions.Logging;
 

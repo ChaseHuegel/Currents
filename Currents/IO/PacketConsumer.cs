@@ -1,7 +1,8 @@
-using Currents.Protocol.Packets;
-using Currents.Utils;
+using Currents.Events;
+using Currents.Protocol;
+using Currents.Types;
 
-namespace Currents.Protocol;
+namespace Currents.IO;
 
 internal class PacketConsumer : IDisposable
 {
@@ -149,9 +150,9 @@ internal class PacketConsumer : IDisposable
                 Packet packet = Packet.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
                 Header header = packet.Header;
 
-                if ((header.Controls & (byte)Packets.Packets.Controls.Ack) != 0)
+                if ((header.Controls & (byte)Packets.Controls.Ack) != 0)
                 {
-                    bool isPiggybackAck = header.Controls != (byte)Packets.Packets.Controls.Ack;
+                    bool isPiggybackAck = header.Controls != (byte)Packets.Controls.Ack;
 
                     Ack ack;
                     if (isPiggybackAck)
@@ -179,7 +180,7 @@ internal class PacketConsumer : IDisposable
                     ScheduleEvent(AckRecv, packetEvent);
                 }
 
-                if ((header.Controls & (byte)Packets.Packets.Controls.Syn) != 0)
+                if ((header.Controls & (byte)Packets.Controls.Syn) != 0)
                 {
                     Syn syn = Syn.Deserialize(recvEvent.Data.Array, recvEvent.Data.Offset, recvEvent.Data.Count);
                     var packetEvent = new PacketEvent<Syn>(syn, recvEvent.EndPoint, recvEvent.Data.Count);
@@ -187,7 +188,7 @@ internal class PacketConsumer : IDisposable
                     ScheduleEvent(SynRecv, packetEvent);
                 }
 
-                if ((header.Controls & (byte)Packets.Packets.Controls.Rst) != 0)
+                if ((header.Controls & (byte)Packets.Controls.Rst) != 0)
                 {
                     var rst = new Rst(header);
                     var packetEvent = new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count);

@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net;
+using Currents.IO;
+using Currents.Metrics;
 using Currents.Protocol;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;

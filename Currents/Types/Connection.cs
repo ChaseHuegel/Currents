@@ -1,5 +1,4 @@
 using System.Net;
-using Currents.Protocol.Packets;
 
 namespace Currents.Protocol;
 

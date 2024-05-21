@@ -1,4 +1,4 @@
-namespace Currents.Protocol.Packets;
+namespace Currents.Protocol;
 
 internal static partial class Packets
 {
