@@ -8,7 +8,7 @@ internal readonly struct Connection : IEquatable<IPEndPoint>
     public IPEndPoint EndPoint { get; }
     public Syn Syn { get; } // TODO replace this with specific params for relevant settings
 
-    private Connection(IPEndPoint endPoint)
+    public Connection(IPEndPoint endPoint)
     {
         EndPoint = endPoint;
     }

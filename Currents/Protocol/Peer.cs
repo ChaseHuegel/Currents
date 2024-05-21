@@ -1,82 +1,60 @@
 using Currents.Protocol.Packets;
-using Currents.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace Currents.Protocol;
 
 public class Peer : IEquatable<Peer>, IDisposable
 {
-    public bool IsConnected => !_disposed && _channel.IsOpen;
+    public bool IsConnected => !_disposed && _io.IsOpen;
+    internal PacketIO InOut => _io;
 
     internal readonly Connection Connection;
 
     private volatile bool _disposed;
 
-    private readonly Channel _channel;
-    private readonly CircularBuffer<byte[]> _recvBuffer;
+    private readonly PacketIO _io;
 
-    internal Peer(Connection connection, Channel channel, int bufferSize)
+    internal Peer(Connection connection, Channel channel, PacketConsumer consumer, int bufferSize, ILogger logger, ConnectorMetrics metrics)
     {
         Connection = connection;
-        _channel = channel;
-        _recvBuffer = new CircularBuffer<byte[]>(bufferSize);
+        _io = new PacketIO(connection.Syn, channel, consumer, bufferSize, logger, metrics);
     }
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
-        _recvBuffer.Dispose();
+        _io.SendRst(Connection.EndPoint);
+        _io.Dispose();
     }
 
     public void Send(byte[] data)
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(Peer));
-        }
+        ValidateAndThrow();
 
-        if (!IsConnected)
-        {
-            throw new CrntException($"The {nameof(Peer)} is not connected.");
-        }
-
-        //  TODO implement sequencing and acks
-        var packet = Packets.Packets.NewAck(0, 0, data);
-        var segment = packet.SerializePooledSegment();
         //  TODO support send types (reliable, ordered, sequenced..)
-        _channel.Send(segment, Connection.EndPoint);
+        _io.Send(data, Connection.EndPoint);
     }
 
     public bool TryConsume(out byte[] packet, int timeoutMs = Timeout.Infinite)
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(Peer));
-        }
+        ValidateAndThrow();
 
-        if (!IsConnected)
-        {
-            throw new CrntException($"The {nameof(Peer)} is not connected.");
-        }
-
-        return _recvBuffer.TryConsume(out packet, timeoutMs);
+        return _io.RecvBuffer.TryConsume(out packet, timeoutMs);
     }
 
     public byte[] Consume()
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(Peer));
-        }
+        ValidateAndThrow();
 
-        if (!IsConnected)
-        {
-            throw new CrntException($"The {nameof(Peer)} is not connected.");
-        }
-
-        return _recvBuffer.Consume();
+        return _io.RecvBuffer.Consume();
     }
 
-    internal void Produce(byte[] packet)
+    private void ValidateAndThrow()
     {
         if (_disposed)
         {
@@ -87,13 +65,11 @@ public class Peer : IEquatable<Peer>, IDisposable
         {
             throw new CrntException($"The {nameof(Peer)} is not connected.");
         }
-
-        _recvBuffer.Produce(packet);
     }
 
     public bool Equals(Peer other)
     {
-        return Connection.Equals(other.Connection) && _channel.Equals(other._channel);
+        return Connection.Equals(other.Connection) && _io.Channel.Equals(other._io.Channel);
     }
 
     public override bool Equals(object obj)
@@ -113,6 +89,6 @@ public class Peer : IEquatable<Peer>, IDisposable
 
     public override int GetHashCode()
     {
-        return Connection.GetHashCode() * 17 + _channel.GetHashCode();
+        return Connection.GetHashCode() * 17 + _io.Channel.GetHashCode();
     }
 }
