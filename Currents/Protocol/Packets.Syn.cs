@@ -9,7 +9,8 @@ internal static partial class Packets
         return new Syn()
         {
             Header = {
-                Controls = (byte)Controls.Syn
+                Controls = (byte)Controls.Syn,
+                Options = (byte)Options.Reliable,
             },
             Version = 1,
             RetransmissionTimeout = 100,
@@ -22,11 +23,11 @@ internal static partial class Packets
         return new Syn()
         {
             Header = {
-                Controls = (byte)Controls.Syn
+                Controls = (byte)Controls.Syn,
+                Options = (byte)(Options.Reliable | (Options)connectionParameters.Options),
             },
             Version = connectionParameters.Version,
             MaxOutstandingPackets = connectionParameters.MaxOutstandingPackets,
-            Options = connectionParameters.Options,
             MaxPacketSize = connectionParameters.MaxPacketSize,
             RetransmissionTimeout = connectionParameters.RetransmissionTimeout,
             CumulativeAckTimeout = connectionParameters.CumulativeAckTimeout,

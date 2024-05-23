@@ -1,3 +1,5 @@
+using Currents.Protocol;
+
 namespace Currents.Types;
 
 internal class CircularBuffer<T>(int size) : IDisposable

@@ -116,14 +116,14 @@ internal class ConnectionHandler : IDisposable
             _peer = new Peer(connection, _channel, _consumer, PacketBufferSize, _logger, _metrics);
             StartListening();
 
-            _peer.InOut.SendSyn(remoteEndPoint, requestedSyn);
+            _peer.InOut.Syn(requestedSyn, remoteEndPoint);
 
             PacketEvent<Syn> recv = WaitForSyn(remoteEndPoint);
             Syn serverSyn = recv.Packet;
 
             if (!ValidateServerSyn(serverSyn))
             {
-                _peer.InOut.SendRst(remoteEndPoint);
+                _peer.InOut.Rst(remoteEndPoint);
                 peer = null!;
                 _peer = null;
                 return false;
@@ -173,15 +173,14 @@ internal class ConnectionHandler : IDisposable
 
                 if (!ValidateClientSyn(clientSyn))
                 {
-                    _peer.InOut.SendRst(connection);
+                    _peer.InOut.Rst(connection);
                     continue;
                 }
 
                 //  TODO Instead of echoing 1:1, construct a syn out of the server's desired params + accepted params from the client's syn
                 clientSyn.Header.Controls |= (byte)Packets.Controls.Ack;
-                clientSyn.Header.Ack = clientSyn.Header.Sequence;
                 _peer.InOut.MergeSyn(clientSyn);
-                _peer.InOut.SendSyn(connection, clientSyn);
+                _peer.InOut.Syn(clientSyn, connection);
 
                 _logger.LogInformation("Accepted {EndPoint} from {LocalEndPoint} with ack {Ack}", connection, _channel.LocalEndPoint, clientSyn.Header.Ack);
                 _metrics.AcceptedConnection(connection, _channel.LocalEndPoint);

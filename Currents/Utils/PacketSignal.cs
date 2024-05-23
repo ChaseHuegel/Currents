@@ -38,7 +38,6 @@ internal class PacketSignal<T> : IDisposable
             return;
         }
 
-        Console.WriteLine($"Recv packet signal for {typeof(T)} from {e.EndPoint}");
         _packetConsumer.RemoveListener<T>(OnEvent);
         _event = e;
         _waitHandle.Set();

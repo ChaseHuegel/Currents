@@ -89,14 +89,14 @@ internal class Retransmitter : IDisposable
 
     private void OnElapsed(object sender, System.Timers.ElapsedEventArgs e)
     {
+        _timer.Stop();
+
         if (_maxRetransmissions > 0 && _retransmissions >= _maxRetransmissions)
         {
-            _timer.Stop();
             Expired?.Invoke(this, new EndPointEventArgs(_endPoint));
             return;
         }
 
-        _timer.Stop();
         PooledArraySegment<byte> dataCopy = _data.Copy();
         _channel.Send(_data, _endPoint);
         _data = dataCopy;

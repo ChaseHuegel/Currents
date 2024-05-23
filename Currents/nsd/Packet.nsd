@@ -11,6 +11,7 @@ message Header
     byte Controls   = 0;
     byte Sequence   = 1;
     byte Ack        = 2;
+    byte Options    = 3;
 }
 
 message Sec
@@ -22,16 +23,15 @@ message Syn
     Header Header                   = 0;
     byte Version                    = 1;
     byte MaxOutstandingPackets      = 2;
-    byte Options                    = 3;
-    ushort MaxPacketSize            = 4;
-    ushort RetransmissionTimeout    = 5;
-    ushort CumulativeAckTimeout     = 6;
-    ushort NullPacketTimeout        = 7;
-    byte MaxRetransmissions         = 8;
-    byte MaxCumulativeAcks          = 9;
-    byte MaxOutOfSequencePackets    = 10;
-    byte MaxAutoResets              = 11;
-    Sec? Security                   = 12;
+    ushort MaxPacketSize            = 3;
+    ushort RetransmissionTimeout    = 4;
+    ushort CumulativeAckTimeout     = 5;
+    ushort NullPacketTimeout        = 6;
+    byte MaxRetransmissions         = 7;
+    byte MaxCumulativeAcks          = 8;
+    byte MaxOutOfSequencePackets    = 9;
+    byte MaxAutoResets              = 10;
+    Sec? Security                   = 11;
 }
 
 message Ack

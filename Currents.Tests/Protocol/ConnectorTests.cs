@@ -142,7 +142,7 @@ public partial class ConnectorTests
     [TestCase(100)]
     public async Task Accept_ManySimultaneous_Succeeds(int connections)
     {
-        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Trace));
         ILogger clientLogger = loggerFactory.CreateLogger<ConnectionHandler>();
         ILogger serverLogger = loggerFactory.CreateLogger<ConnectionHandler>();
         using var meterFactory = new TestMeterFactory();
@@ -171,12 +171,12 @@ public partial class ConnectorTests
         var connectTasks = new List<Task>();
         for (int i = 0; i < connections; i++)
         {
-            var client = new CrntConnector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
             var task = Task.Run(ConnectClient);
             connectTasks.Add(task);
 
             Task ConnectClient()
             {
+                var client = new CrntConnector(new IPEndPoint(IPAddress.Any, 0), clientLogger, clientMetrics);
                 bool connected = client.TryConnect(new IPEndPoint(IPAddress.Loopback, 4321));
                 client.Dispose();
 

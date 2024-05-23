@@ -17,16 +17,15 @@ internal class PacketIO : IDisposable
     public EventHandler<PacketEvent<Rst>>? RstRcv;
 
     private volatile bool _disposed;
-    private volatile byte _sequence;
-    private volatile byte _ack;
 
     private Syn _syn;
     private readonly Channel _channel;
     private readonly PacketConsumer _consumer;
     private readonly ILogger _logger;
     private readonly ConnectorMetrics _metrics;
-    private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
     private readonly CircularBuffer<byte[]> _recvBuffer;
+    private readonly ReliablePacketHandler _reliablePacketHandler;
+    private readonly UnreliablePacketHandler _unreliablePacketHandler;
 
     public PacketIO(Syn syn, Channel channel, PacketConsumer consumer, int bufferSize, ILogger logger, ConnectorMetrics metrics)
     {
@@ -36,9 +35,12 @@ internal class PacketIO : IDisposable
         _logger = logger;
         _metrics = metrics;
 
-        _sequence = (byte)DateTime.Now.Ticks;
         _recvBuffer = new CircularBuffer<byte[]>(bufferSize);
-        _ack = syn.Header.Sequence;
+
+        _unreliablePacketHandler = new UnreliablePacketHandler(channel, metrics);
+
+        _reliablePacketHandler = new ReliablePacketHandler(_unreliablePacketHandler, syn, channel, consumer, metrics);
+        _reliablePacketHandler.RetransmissionExpired += RetransmissionExpired;
     }
 
     public void Dispose()
@@ -50,133 +52,51 @@ internal class PacketIO : IDisposable
 
         _disposed = true;
 
-        lock (_retransmitters)
-        {
-            for (int i = 0; i < _retransmitters.Length; i++)
-            {
-                Retransmitter? retransmitter = _retransmitters[i];
-                if (retransmitter != null)
-                {
-                    retransmitter.Expired -= RetransmissionExpired;
-                    retransmitter.Dispose();
-                }
-            }
-        }
-
+        StopListening();
         RetransmissionExpired = null;
         RstRcv = null;
     }
 
     public void StartListening()
     {
-        _consumer.AckRecv += OnAckRecv;
         _consumer.DataRecv += OnDataRecv;
         _consumer.RstRecv += RstRcv;
+
+        _reliablePacketHandler.StartListening();
     }
 
     public void StopListening()
     {
-        _consumer.AckRecv -= OnAckRecv;
         _consumer.DataRecv -= OnDataRecv;
         _consumer.RstRecv -= RstRcv;
+
+        _reliablePacketHandler.StopListening();
     }
 
     public void MergeSyn(Syn syn)
     {
         //  TODO accept negotiable parameters and ignore non-negotiable
         _syn = syn;
+        _reliablePacketHandler.MergeSyn(syn);
     }
 
-    public void Send(byte[] data, IPEndPoint endPoint)
+    public void SendReliable(byte[] data, IPEndPoint endPoint)
     {
-        var packet = Packets.NewAck(_sequence, _ack, data);
-        var segment = packet.SerializePooledSegment();
-
-        //  TODO support send types (reliable, ordered, sequenced..)
-        SendReliableUnordered(segment, endPoint);
+        _reliablePacketHandler.SendData(data, endPoint);
     }
 
-    public void SendUnreliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint)
+    public void Syn(Syn syn, IPEndPoint endPoint)
     {
-        //  TODO the send methods should handle writing packet headers into the segment
-        _channel.Send(segment, endPoint);
-        _sequence++;
+        _reliablePacketHandler.SendSyn(syn, endPoint);
     }
 
-    public void SendReliableUnordered(PooledArraySegment<byte> segment, IPEndPoint endPoint)
+    public void Rst(IPEndPoint endPoint)
     {
-        //  TODO the send methods should handle writing packet headers into the segment
-        AddRetransmitter(segment, endPoint);
-        _channel.Send(segment, endPoint);
-        _sequence++;
-    }
-
-    public void SendSyn(IPEndPoint endPoint, Syn syn)
-    {
-        syn.Header.Sequence = _sequence;
-        syn.Header.Ack = _ack;
-
-        PooledArraySegment<byte> segment = syn.SerializePooledSegment();
-        SendUnreliableUnordered(segment, endPoint);
-
-        _metrics.PacketSent(Packets.Controls.Syn, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
-    }
-
-    public void SendRst(IPEndPoint endPoint, byte? ack = null)
-    {
-        Rst packet = Packets.NewRst(_sequence, ack ?? _ack);
-
-        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
-        SendUnreliableUnordered(segment, endPoint);
-
-        _metrics.PacketSent(Packets.Controls.Rst, reliable: false, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
-    }
-
-    public void SendAck(IPEndPoint endPoint, byte ack)
-    {
-        if (ack < _ack)
-        {
-            //  TODO implement sliding window
-            _ack = ack;
-        }
-
-        Ack packet = Packets.NewAck(_sequence, ack);
-
-        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
-        SendUnreliableUnordered(segment, endPoint);
-
-        _metrics.PacketSent(Packets.Controls.Ack, reliable: false, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
-    }
-
-    private void AddRetransmitter(PooledArraySegment<byte> segment, IPEndPoint endPoint)
-    {
-        lock (_retransmitters)
-        {
-            Retransmitter retransmitter = new(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
-            retransmitter.Expired += RetransmissionExpired;
-            _retransmitters[_sequence] = retransmitter;
-        }
-    }
-
-    private void OnAckRecv(object sender, PacketEvent<Ack> e)
-    {
-        _metrics.PacketRecv(Packets.Controls.Ack, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
-
-        lock (_retransmitters)
-        {
-            Retransmitter? retransmitter = _retransmitters[e.Packet.Header.Ack];
-            if (retransmitter != null)
-            {
-                retransmitter.Expired -= RetransmissionExpired;
-                retransmitter.Dispose();
-            }
-        }
+        _unreliablePacketHandler.SendRst(endPoint);
     }
 
     private void OnDataRecv(object sender, PacketEvent<byte[]> e)
     {
         RecvBuffer.Produce(e.Packet);
-        SendAck(e.EndPoint, e.Sequence);
     }
-
 }

@@ -4,7 +4,7 @@ namespace Currents.Protocol;
 
 internal static partial class Packets
 {
-    public static Ack NewAck(byte sequence, byte ack, byte[]? data = null)
+    public static Ack NewAck(byte sequence, byte ack, Options options, byte[]? data = null)
     {
         return new Ack()
         {
@@ -12,6 +12,7 @@ internal static partial class Packets
                 Controls = (byte)Controls.Ack,
                 Sequence = sequence,
                 Ack = ack,
+                Options = (byte)options
             },
             Data = data
         };

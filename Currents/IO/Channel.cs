@@ -35,7 +35,8 @@ internal class Channel : IDisposable
     private IPEndPoint _localEndPoint;
     private IPEndPoint _remoteEndPoint;
 
-    private EndPoint _lastRecvEndPoint = new IPEndPoint(IPAddress.Any, 0);
+    private readonly static EndPoint AnyEndPoint = new IPEndPoint(IPAddress.Any, 0);
+    private EndPoint _lastRecvEndPoint = AnyEndPoint;
     private Thread? _recvThread;
     private Thread? _sendThread;
     private byte _recvDequeueIndex;
@@ -146,8 +147,9 @@ internal class Channel : IDisposable
         {
             _sendQueue[_sendEnqueueIndex] = new SendEvent(endPoint, segment);
             _sendEnqueueIndex++;
-            _sendSignal.Set();
         }
+
+        _sendSignal.Set();
     }
 
     public bool TryConsume(out RecvEvent recvEvent, int timeoutMs = Timeout.Infinite)
@@ -231,49 +233,55 @@ internal class Channel : IDisposable
     {
         _recvCloseHandle.Reset();
 
-        try
+        while (_open)
         {
-            while (_open)
+            if (_socket.Available == 0 || _recvQueue[_recvEnqueueIndex] != null)
             {
-                if (_socket.Available == 0 || _recvQueue[_recvEnqueueIndex] != null)
-                {
-                    Thread.Sleep(5);
-                    continue;
-                }
-
-                int bytesRecv = _socket.ReceiveFrom(_recvBuffer, 0, _recvBuffer.Length, SocketFlags.None, ref _lastRecvEndPoint);
-
-                if (!_open)
-                {
-                    break;
-                }
-
-                if (bytesRecv < 5)
-                {
-                    continue;
-                }
-
-                ushort expectedChecksum = Bytes.ReadUShort(_recvBuffer, 0);
-                ushort actualChecksum = Checksum16.Compute(_recvBuffer, 2, bytesRecv - 2);
-
-                if (expectedChecksum != actualChecksum)
-                {
-                    //  TODO raise a signal?
-                    continue;
-                }
-
-                byte[] buffer = _arrayPool.Rent(bytesRecv - 2);
-                Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRecv - 2);
-                var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRecv - 2);
-
-                _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
-                _recvEnqueueIndex++;
-                _recvSignal.Set();
+                Thread.Sleep(5);
+                continue;
             }
-        }
-        catch (Exception)
-        {
-            //  Expected
+
+            int bytesRecv;
+            try
+            {
+                bytesRecv = _socket.ReceiveFrom(_recvBuffer, 0, _recvBuffer.Length, SocketFlags.None, ref _lastRecvEndPoint);
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch
+            {
+                //  SocketError.ConnectionReset can occur if the target endpoint isn't listening
+                continue;
+            }
+
+            if (!_open)
+            {
+                break;
+            }
+
+            if (bytesRecv < 5)
+            {
+                continue;
+            }
+
+            ushort expectedChecksum = Bytes.ReadUShort(_recvBuffer, 0);
+            ushort actualChecksum = Checksum16.Compute(_recvBuffer, 2, bytesRecv - 2);
+
+            if (expectedChecksum != actualChecksum)
+            {
+                //  TODO raise a signal?
+                continue;
+            }
+
+            byte[] buffer = _arrayPool.Rent(bytesRecv - 2);
+            Buffer.BlockCopy(_recvBuffer, 2, buffer, 0, bytesRecv - 2);
+            var segment = new PooledArraySegment<byte>(_arrayPool, buffer, 0, bytesRecv - 2);
+
+            _recvQueue[_recvEnqueueIndex] = new RecvEvent((IPEndPoint)_lastRecvEndPoint, segment);
+            _recvEnqueueIndex++;
+            _recvSignal.Set();
         }
 
         _recvCloseHandle.Set();
@@ -283,35 +291,40 @@ internal class Channel : IDisposable
     {
         _sendCloseHandle.Reset();
 
-        try
+        while (_open)
         {
-            while (_open)
+            _sendSignal.WaitOne();
+
+            while (_sendQueue[_sendDequeueIndex] != null)
             {
-                _sendSignal.WaitOne();
+                SendEvent sendEvent = _sendQueue[_sendDequeueIndex]!;
+                _sendQueue[_sendDequeueIndex] = null;
+                _sendDequeueIndex++;
 
-                while (_sendQueue[_sendDequeueIndex] != null)
+                int packetLength;
+                using (sendEvent.Data)
                 {
-                    SendEvent sendEvent = _sendQueue[_sendDequeueIndex]!;
-                    _sendQueue[_sendDequeueIndex] = null;
-                    _sendDequeueIndex++;
+                    //  TODO if the checksum is computed from sendEVent.Data.Array instead of _sendBuffer, the checksum in recv mismatches?
+                    Buffer.BlockCopy(sendEvent.Data.Array, sendEvent.Data.Offset, _sendBuffer, 2, sendEvent.Data.Count);
+                    ushort checksum = Checksum16.Compute(_sendBuffer, 2, sendEvent.Data.Count);
+                    Bytes.Write(_sendBuffer, 0, checksum);
+                    packetLength = sendEvent.Data.Count + 2;
+                }
 
-                    int packetLength;
-                    using (sendEvent.Data)
-                    {
-                        //  TODO if the checksum is computed from sendEVent.Data.Array instead of _sendBuffer, the checksum in recv mismatches?
-                        Buffer.BlockCopy(sendEvent.Data.Array, sendEvent.Data.Offset, _sendBuffer, 2, sendEvent.Data.Count);
-                        ushort checksum = Checksum16.Compute(_sendBuffer, 2, sendEvent.Data.Count);
-                        Bytes.Write(_sendBuffer, 0, checksum);
-                        packetLength = sendEvent.Data.Count + 2;
-                    }
-
+                try
+                {
                     _socket.SendTo(_sendBuffer, 0, packetLength, SocketFlags.None, sendEvent.EndPoint);
                 }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+                catch
+                {
+                    //  SocketError.ConnectionReset can occur if the target endpoint isn't listening
+                    continue;
+                }
             }
-        }
-        catch (Exception)
-        {
-            //  Expected
         }
 
         _sendCloseHandle.Set();

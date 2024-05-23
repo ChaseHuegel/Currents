@@ -29,7 +29,7 @@ public class Peer : IEquatable<Peer>, IDisposable
         }
 
         _disposed = true;
-        _io.SendRst(Connection.EndPoint);
+        _io.Rst(Connection.EndPoint);
         _io.Dispose();
     }
 
@@ -38,7 +38,7 @@ public class Peer : IEquatable<Peer>, IDisposable
         ValidateAndThrow();
 
         //  TODO support send types (reliable, ordered, sequenced..)
-        _io.Send(data, Connection.EndPoint);
+        _io.SendReliable(data, Connection.EndPoint);
     }
 
     public bool TryConsume(out byte[] packet, int timeoutMs = Timeout.Infinite)
