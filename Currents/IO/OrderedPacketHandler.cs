@@ -5,7 +5,7 @@ using Currents.Protocol;
 
 namespace Currents.IO;
 
-internal class ReliablePacketHandler : IDisposable
+internal class OrderedPacketHandler : IDisposable
 {
     public EventHandler<PacketEvent<Rst>>? RstRecv;
     public EventHandler<PacketEvent<byte[]>>? DataRecv;
@@ -22,7 +22,7 @@ internal class ReliablePacketHandler : IDisposable
     private readonly UnreliablePacketHandler _unreliablePacketHandler;
     private readonly Retransmitter?[] _retransmitters = new Retransmitter?[256];
 
-    public ReliablePacketHandler(UnreliablePacketHandler unreliablePacketHandler, Syn syn, Channel channel, PacketConsumer consumer, ConnectorMetrics metrics)
+    public OrderedPacketHandler(UnreliablePacketHandler unreliablePacketHandler, Syn syn, Channel channel, PacketConsumer consumer, ConnectorMetrics metrics)
     {
         _unreliablePacketHandler = unreliablePacketHandler;
         _syn = syn;
@@ -94,17 +94,6 @@ internal class ReliablePacketHandler : IDisposable
         _metrics.PacketSent(Packets.Controls.Ack, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
     }
 
-    public void SendSyn(Syn syn, IPEndPoint endPoint)
-    {
-        syn.Header.Sequence = _sequence;
-        syn.Header.Ack = _ack;
-
-        PooledArraySegment<byte> segment = syn.SerializePooledSegment();
-        SendRaw(segment, endPoint);
-
-        _metrics.PacketSent(Packets.Controls.Syn, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
-    }
-
     public void SendRaw(PooledArraySegment<byte> segment, IPEndPoint endPoint)
     {
         AddRetransmitter(segment, endPoint);
@@ -129,8 +118,8 @@ internal class ReliablePacketHandler : IDisposable
 
     private bool SupportsOptions(Packets.Options options)
     {
-        const Packets.Options requiredOptionsMask = ~Packets.Options.Reliable;
-        const Packets.Options unallowedOptions = Packets.Options.Sequenced | Packets.Options.Ordered;
+        const Packets.Options requiredOptionsMask = ~(Packets.Options.Reliable | Packets.Options.Ordered);
+        const Packets.Options unallowedOptions = Packets.Options.Sequenced;
         const Packets.Options mask = requiredOptionsMask ^ unallowedOptions;
 
         Packets.Options maskedOptions = mask | ~options;
@@ -177,6 +166,7 @@ internal class ReliablePacketHandler : IDisposable
 
         Ack(e);
 
+        //  TODO only raise in order
         DataRecv?.Invoke(this, e);
     }
 

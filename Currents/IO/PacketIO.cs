@@ -20,27 +20,21 @@ internal class PacketIO : IDisposable
 
     private Syn _syn;
     private readonly Channel _channel;
-    private readonly PacketConsumer _consumer;
-    private readonly ILogger _logger;
-    private readonly ConnectorMetrics _metrics;
     private readonly CircularBuffer<byte[]> _recvBuffer;
     private readonly ReliablePacketHandler _reliablePacketHandler;
     private readonly UnreliablePacketHandler _unreliablePacketHandler;
+    private readonly OrderedPacketHandler _orderedPacketHandler;
 
     public PacketIO(Syn syn, Channel channel, PacketConsumer consumer, int bufferSize, ILogger logger, ConnectorMetrics metrics)
     {
         _syn = syn;
         _channel = channel;
-        _consumer = consumer;
-        _logger = logger;
-        _metrics = metrics;
 
         _recvBuffer = new CircularBuffer<byte[]>(bufferSize);
 
-        _unreliablePacketHandler = new UnreliablePacketHandler(channel, metrics);
-
+        _unreliablePacketHandler = new UnreliablePacketHandler(channel, consumer, metrics);
         _reliablePacketHandler = new ReliablePacketHandler(_unreliablePacketHandler, syn, channel, consumer, metrics);
-        _reliablePacketHandler.RetransmissionExpired += RetransmissionExpired;
+        _orderedPacketHandler = new OrderedPacketHandler(_unreliablePacketHandler, syn, channel, consumer, metrics);
     }
 
     public void Dispose()
@@ -59,18 +53,36 @@ internal class PacketIO : IDisposable
 
     public void StartListening()
     {
-        _consumer.DataRecv += OnDataRecv;
-        _consumer.RstRecv += RstRcv;
+        _unreliablePacketHandler.RstRecv += RstRcv;
+        _unreliablePacketHandler.DataRecv += OnDataRecv;
+        _unreliablePacketHandler.StartListening();
 
+        _reliablePacketHandler.RetransmissionExpired += RetransmissionExpired;
+        _reliablePacketHandler.RstRecv += RstRcv;
+        _reliablePacketHandler.DataRecv += OnDataRecv;
         _reliablePacketHandler.StartListening();
+
+        _orderedPacketHandler.RetransmissionExpired += RetransmissionExpired;
+        _orderedPacketHandler.RstRecv += RstRcv;
+        _orderedPacketHandler.DataRecv += OnDataRecv;
+        _orderedPacketHandler.StartListening();
     }
 
     public void StopListening()
     {
-        _consumer.DataRecv -= OnDataRecv;
-        _consumer.RstRecv -= RstRcv;
+        _unreliablePacketHandler.RstRecv -= RstRcv;
+        _unreliablePacketHandler.DataRecv -= OnDataRecv;
+        _unreliablePacketHandler.StopListening();
 
+        _reliablePacketHandler.RetransmissionExpired -= RetransmissionExpired;
+        _reliablePacketHandler.RstRecv -= RstRcv;
+        _reliablePacketHandler.DataRecv -= OnDataRecv;
         _reliablePacketHandler.StopListening();
+
+        _orderedPacketHandler.RetransmissionExpired -= RetransmissionExpired;
+        _orderedPacketHandler.RstRecv -= RstRcv;
+        _orderedPacketHandler.DataRecv -= OnDataRecv;
+        _orderedPacketHandler.StopListening();
     }
 
     public void MergeSyn(Syn syn)
@@ -78,6 +90,7 @@ internal class PacketIO : IDisposable
         //  TODO accept negotiable parameters and ignore non-negotiable
         _syn = syn;
         _reliablePacketHandler.MergeSyn(syn);
+        _orderedPacketHandler.MergeSyn(syn);
     }
 
     public void SendReliable(byte[] data, IPEndPoint endPoint)
