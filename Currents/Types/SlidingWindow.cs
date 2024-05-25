@@ -26,6 +26,7 @@ public class SlidingWindow<TData> where TData : struct
                 return false;
             }
 
+            //  TODO handle wrapping around
             if (index >= _tail || index <= _head)
             {
                 Available?.Invoke(this, (index, data));
@@ -40,6 +41,7 @@ public class SlidingWindow<TData> where TData : struct
     {
         lock (_lock)
         {
+            //  TODO handle wrapping around
             if (index < _tail || index > _head)
             {
                 return false;
