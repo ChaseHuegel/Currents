@@ -2,8 +2,8 @@ namespace Currents.Types;
 
 public class SlidingWindow<TData> where TData : struct
 {
-    public EventHandler<(byte, TData)>? Accepted;
-    public EventHandler<(byte, TData)>? Available;
+    public EventHandler<(byte, TData)>? ItemAccepted;
+    public EventHandler<(byte, TData)>? ItemAvailable;
 
     private object _lock = new();
 
@@ -29,7 +29,7 @@ public class SlidingWindow<TData> where TData : struct
             //  TODO handle wrapping around
             if (index >= _tail || index <= _head)
             {
-                Available?.Invoke(this, (index, data));
+                ItemAvailable?.Invoke(this, (index, data));
             }
 
             _buffer[index] = data;
@@ -63,7 +63,7 @@ public class SlidingWindow<TData> where TData : struct
             TData? tailItem = _buffer[_tail];
             if (tailItem != null)
             {
-                Accepted?.Invoke(this, (_tail, tailItem.Value));
+                ItemAccepted?.Invoke(this, (_tail, tailItem.Value));
                 _buffer[_tail] = null;
             }
 
@@ -73,7 +73,7 @@ public class SlidingWindow<TData> where TData : struct
             TData? headItem = _buffer[_head];
             if (headItem != null)
             {
-                Available?.Invoke(this, (_head, headItem.Value));
+                ItemAvailable?.Invoke(this, (_head, headItem.Value));
             }
         } while (_buffer[_tail] != null);
     }

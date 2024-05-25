@@ -9,7 +9,7 @@ public class SlidingWindowTests
     public void Pop_IsOrdered()
     {
         var window = new SlidingWindow<byte>(5);
-        window.Accepted += OnPopped;
+        window.ItemAccepted += OnPopped;
 
         window.TryInsert(0, 1);
         Console.WriteLine("Inserted 0");
@@ -111,11 +111,11 @@ public class SlidingWindowTests
         public SlidingIO(byte windowSize, byte peerWindowSize)
         {
             _sendWindow = new SlidingWindow<byte>(peerWindowSize);
-            _sendWindow.Available += OnSendAvailable;
-            _sendWindow.Accepted += OnSendAccepted;
+            _sendWindow.ItemAvailable += OnSendAvailable;
+            _sendWindow.ItemAccepted += OnSendAccepted;
 
             _recvWindow = new SlidingWindow<byte>(windowSize);
-            _recvWindow.Accepted += OnRecvPopped;
+            _recvWindow.ItemAccepted += OnRecvPopped;
         }
 
         public void Send(byte sequence, byte value)
