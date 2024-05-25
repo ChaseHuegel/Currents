@@ -82,12 +82,12 @@ public class SlidingWindowTests
         client.Send(0, 1);
         client.Send(1, 2);
         client.Send(3, 4);
+        client.Send(8, 9);
+        client.Send(7, 8);
         client.Send(4, 5);
         client.Send(2, 3);
-        client.Send(8, 9);
         client.Send(5, 6);
         client.Send(6, 7);
-        client.Send(7, 8);
         client.Send(9, 10);
 
         await tcs.Task;
