@@ -9,7 +9,8 @@ public struct ConnectionParameters
 
     /// <summary>
     /// The maximum number of segments that should be sent without getting an
-    /// acknowledgment.  This is used by the receiver as a means of flow control.
+    /// acknowledgment. The valid range for this value is 1 to 255.
+    /// This is used by the receiver as a means of flow control.
     /// The number is selected during connection initiation and may not be
     /// changed later in the life of the connection.  This is not a negotiable
     /// parameter.  Each side must use the value provided by its peer when
@@ -110,6 +111,12 @@ public struct ConnectionParameters
         {
             exceptions ??= [];
             exceptions.Add(new ArgumentException("Retransmission timeouts must range between 100ms and 65535ms", nameof(RetransmissionTimeout)));
+        }
+
+        if (MaxOutstandingPackets < 1)
+        {
+            exceptions ??= [];
+            exceptions.Add(new ArgumentException("Max outstanding packets must range between 1 and 255.", nameof(RetransmissionTimeout)));
         }
 
         if (exceptions?.Count > 0)

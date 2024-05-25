@@ -98,6 +98,11 @@ internal class PacketIO : IDisposable
         _reliablePacketHandler.SendData(data, endPoint);
     }
 
+    public void SendOrdered(byte[] data, IPEndPoint endPoint)
+    {
+        _orderedPacketHandler.SendData(data, endPoint);
+    }
+
     public void Syn(Syn syn, IPEndPoint endPoint)
     {
         _reliablePacketHandler.SendSyn(syn, endPoint);

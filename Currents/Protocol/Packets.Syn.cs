@@ -14,7 +14,8 @@ internal static partial class Packets
             },
             Version = 1,
             RetransmissionTimeout = 100,
-            MaxRetransmissions = 3
+            MaxRetransmissions = 3,
+            MaxOutstandingPackets = 10,
         };
     }
 

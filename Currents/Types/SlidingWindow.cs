@@ -14,26 +14,28 @@ public class SlidingWindow<TData> where TData : struct
 
     public SlidingWindow(byte size)
     {
-        _head = size;
+        _head = (byte)(size - 1);
     }
 
-    public bool TryInsert(byte index, TData data)
+    public SlidingWindow(byte start, byte size)
+    {
+        _tail = start;
+        _head = (byte)(start + size - 1);
+    }
+
+    public bool TryInsertAndAccept(byte index, TData item)
     {
         lock (_lock)
         {
-            if (_buffer[index] != null)
-            {
-                return false;
-            }
+            return TryInsertInternal(index, item) && TryAcceptInternal(index);
+        }
+    }
 
-            //  TODO handle wrapping around
-            if (index >= _tail || index <= _head)
-            {
-                ItemAvailable?.Invoke(this, (index, data));
-            }
-
-            _buffer[index] = data;
-            return true;
+    public bool TryInsert(byte index, TData item)
+    {
+        lock (_lock)
+        {
+            return TryInsertInternal(index, item);
         }
     }
 
@@ -41,19 +43,39 @@ public class SlidingWindow<TData> where TData : struct
     {
         lock (_lock)
         {
-            //  TODO handle wrapping around
-            if (index < _tail || index > _head)
-            {
-                return false;
-            }
-
-            if (index == _tail)
-            {
-                Slide();
-            }
-
-            return true;
+            return TryAcceptInternal(index);
         }
+    }
+
+    private bool TryInsertInternal(byte index, TData item)
+    {
+        if (_buffer[index] != null)
+        {
+            return false;
+        }
+
+        if (index >= _tail || index <= _head)
+        {
+            ItemAvailable?.Invoke(this, (index, item));
+        }
+
+        _buffer[index] = item;
+        return true;
+    }
+
+    private bool TryAcceptInternal(byte index)
+    {
+        if (index < _tail || index > _head)
+        {
+            return false;
+        }
+
+        if (index == _tail)
+        {
+            Slide();
+        }
+
+        return true;
     }
 
     private void Slide()
