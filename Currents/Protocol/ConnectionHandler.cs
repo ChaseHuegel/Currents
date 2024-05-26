@@ -253,14 +253,30 @@ internal class ConnectionHandler : IDisposable
 
     private void OnRetransmissionExpired(object sender, EndPointEventArgs e)
     {
-        _logger.LogError("Connection to {EndPoint} was broken.", e.EndPoint);
-        Reset();
+        lock (_peerLock)
+        {
+            if (_peer == null)
+            {
+                return;
+            }
+
+            _logger.LogError("Connection to {EndPoint} was broken.", e.EndPoint);
+            Reset();
+        }
     }
 
     private void OnRstRecv(object sender, PacketEvent<Rst> e)
     {
-        _logger.LogWarning("Connection to {EndPoint} was reset by the remote.", e.EndPoint);
-        _metrics.PacketRecv(Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
-        Reset();
+        lock (_peerLock)
+        {
+            if (_peer == null)
+            {
+                return;
+            }
+
+            _logger.LogWarning("Connection to {EndPoint} was reset by the remote.", e.EndPoint);
+            _metrics.PacketRecv(Packets.Controls.Rst, e.Bytes, e.EndPoint, _channel.LocalEndPoint);
+            Reset();
+        }
     }
 }

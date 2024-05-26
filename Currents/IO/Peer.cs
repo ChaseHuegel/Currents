@@ -18,7 +18,7 @@ public class Peer : IEquatable<Peer>, IDisposable
     internal Peer(Connection connection, Channel channel, PacketConsumer consumer, int bufferSize, ILogger logger, ConnectorMetrics metrics)
     {
         Connection = connection;
-        _io = new PacketIO(connection.Syn, channel, consumer, bufferSize, logger, metrics);
+        _io = new PacketIO(connection, channel, consumer, bufferSize, logger, metrics);
     }
 
     public void Dispose()

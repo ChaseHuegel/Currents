@@ -139,9 +139,14 @@ internal class OrderedPacketHandler : IDisposable
         lock (_retransmitters)
         {
             Retransmitter retransmitter = new(_channel, _syn.MaxRetransmissions, _syn.RetransmissionTimeout, segment, endPoint);
-            retransmitter.Expired += RetransmissionExpired;
+            retransmitter.Expired += OnRetransmissionExpired;
             _retransmitters[sequence] = retransmitter;
         }
+    }
+
+    private void OnRetransmissionExpired(object sender, EndPointEventArgs e)
+    {
+        RetransmissionExpired?.Invoke(this, e);
     }
 
     private void OnAckRecv(object sender, PacketEvent<Ack> e)
@@ -195,7 +200,7 @@ internal class OrderedPacketHandler : IDisposable
             Retransmitter? retransmitter = _retransmitters[e.Item1];
             if (retransmitter != null)
             {
-                retransmitter.Expired -= RetransmissionExpired;
+                retransmitter.Expired -= OnRetransmissionExpired;
                 retransmitter.Dispose();
                 _retransmitters[e.Item1] = null;
             }
