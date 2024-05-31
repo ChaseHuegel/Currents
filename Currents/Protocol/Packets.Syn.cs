@@ -19,6 +19,7 @@ internal static partial class Packets
             MaxPacketSize = ushort.MaxValue,
             CumulativeAckTimeout = 100,
             NullPacketTimeout = 0,
+            MaxCumulativeAcks = 5,
         };
     }
 

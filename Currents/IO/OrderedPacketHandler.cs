@@ -21,6 +21,7 @@ internal class OrderedPacketHandler : IDisposable
     private volatile bool _disposed;
     private volatile byte _sequence;
     private volatile byte _ack;
+    private volatile byte _cumulativeAcks;
 
     private Syn _syn;
     private readonly Channel _channel;
@@ -79,6 +80,7 @@ internal class OrderedPacketHandler : IDisposable
         _consumer.AckRecv += OnAckRecv;
         _consumer.RstRecv += OnRstRecv;
         _consumer.DataRecv += OnDataRecv;
+        _consumer.NulRecv += OnNulRecv;
         _recvWindow.ItemAccepted += OnRecvAccepted;
         _sendWindow.ItemAvailable += OnSendAvailable;
         _sendWindow.ItemAccepted += OnSendAccepted;
@@ -89,6 +91,7 @@ internal class OrderedPacketHandler : IDisposable
         _consumer.AckRecv -= OnAckRecv;
         _consumer.RstRecv -= OnRstRecv;
         _consumer.DataRecv -= OnDataRecv;
+        _consumer.NulRecv -= OnNulRecv;
         _recvWindow.ItemAccepted -= OnRecvAccepted;
         _sendWindow.ItemAvailable -= OnSendAvailable;
         _sendWindow.ItemAccepted -= OnSendAccepted;
@@ -118,17 +121,28 @@ internal class OrderedPacketHandler : IDisposable
 
     public void Ack(IPEndPoint endPoint)
     {
-        Ack(_ack, endPoint);
+        InternalAck(_ack, endPoint);
     }
 
-    public void Ack(PacketEvent<byte[]> e)
+    private void InternalAck(byte ack, IPEndPoint endPoint)
+    {
+        Ack packet = Packets.NewAck(_sequence, ack, Packets.Options.Reliable);
+        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
+        _unreliablePacketHandler.SendRaw(segment, endPoint);
+    }
+
+    private void AccumulateAck(byte ack, IPEndPoint endPoint)
     {
         //  TODO acks should be combined with outgoing sends when possible
-        byte ack = e.Header.Sequence;
         //  TODO implement sliding window
         _ack = ack;
 
-        Ack(ack, e.EndPoint);
+        _cumulativeAcks++;
+        if (_syn.MaxCumulativeAcks == 0 || _cumulativeAcks >= _syn.MaxCumulativeAcks)
+        {
+            _cumulativeAcks = 0;
+            InternalAck(ack, endPoint);
+        }
     }
 
     private bool SupportsOptions(Packets.Options options)
@@ -173,7 +187,7 @@ internal class OrderedPacketHandler : IDisposable
             return;
         }
 
-        Ack(e);
+        AccumulateAck(e.Header.Sequence, e.EndPoint);
 
         _recvWindow.TryInsertAndAccept(e.Header.Sequence, e);
     }
@@ -185,7 +199,19 @@ internal class OrderedPacketHandler : IDisposable
             return;
         }
 
+        AccumulateAck(e.Header.Sequence, e.EndPoint);
+
         RstRecv?.Invoke(this, e);
+    }
+
+    private void OnNulRecv(object sender, PacketEvent<Nul> e)
+    {
+        if (!SupportsOptions((Packets.Options)e.Header.Options))
+        {
+            return;
+        }
+
+        AccumulateAck(e.Header.Sequence, e.EndPoint);
     }
 
     private void OnRecvAccepted(object sender, (byte, PacketEvent<byte[]>) e)

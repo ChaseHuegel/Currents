@@ -14,11 +14,13 @@ internal class PacketConsumer : IDisposable
     public EventHandler<PacketEvent<Ack>>? AckRecv;
     public EventHandler<PacketEvent<Rst>>? RstRecv;
     public EventHandler<PacketEvent<byte[]>>? DataRecv;
+    public EventHandler<PacketEvent<Nul>>? NulRecv;
 
     public CircularBuffer<PacketEvent<Ack>> AckBuffer => _ackBuffer;
     public CircularBuffer<PacketEvent<Syn>> SynBuffer => _synBuffer;
     public CircularBuffer<PacketEvent<Rst>> RstBuffer => _rstBuffer;
     public CircularBuffer<PacketEvent<byte[]>> DataBuffer => _dataBuffer;
+    public CircularBuffer<PacketEvent<Nul>> NulBuffer => _nulBuffer;
 
     private bool _disposed;
     private Thread? _consumeThread;
@@ -32,6 +34,7 @@ internal class PacketConsumer : IDisposable
     private readonly CircularBuffer<PacketEvent<Syn>> _synBuffer = new(PacketBufferSize);
     private readonly CircularBuffer<PacketEvent<Rst>> _rstBuffer = new(PacketBufferSize);
     private readonly CircularBuffer<PacketEvent<byte[]>> _dataBuffer = new(PacketBufferSize);
+    private readonly CircularBuffer<PacketEvent<Nul>> _nulBuffer = new(PacketBufferSize);
 
     public PacketConsumer(Channel channel)
     {
@@ -194,6 +197,14 @@ internal class PacketConsumer : IDisposable
                     var packetEvent = new PacketEvent<Rst>(rst, recvEvent.EndPoint, recvEvent.Data.Count, header);
                     _rstBuffer.Produce(packetEvent);
                     ScheduleEvent(RstRecv, packetEvent);
+                }
+
+                if ((header.Controls & (byte)Packets.Controls.Nul) != 0)
+                {
+                    var nul = new Nul(header);
+                    var packetEvent = new PacketEvent<Nul>(nul, recvEvent.EndPoint, recvEvent.Data.Count, header);
+                    _nulBuffer.Produce(packetEvent);
+                    ScheduleEvent(NulRecv, packetEvent);
                 }
             }
         }

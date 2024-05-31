@@ -14,6 +14,7 @@ internal class ReliablePacketHandler : IDisposable
     private volatile bool _disposed;
     private volatile byte _sequence;
     private volatile byte _ack;
+    private volatile byte _cumulativeAcks;
 
     private Syn _syn;
     private readonly Channel _channel;
@@ -68,6 +69,7 @@ internal class ReliablePacketHandler : IDisposable
         _consumer.AckRecv += OnAckRecv;
         _consumer.RstRecv += OnRstRecv;
         _consumer.DataRecv += OnDataRecv;
+        _consumer.NulRecv += OnNulRecv;
     }
 
     public void StopListening()
@@ -75,6 +77,7 @@ internal class ReliablePacketHandler : IDisposable
         _consumer.AckRecv -= OnAckRecv;
         _consumer.RstRecv -= OnRstRecv;
         _consumer.DataRecv -= OnDataRecv;
+        _consumer.NulRecv -= OnNulRecv;
     }
 
     public void MergeSyn(Syn syn)
@@ -112,26 +115,9 @@ internal class ReliablePacketHandler : IDisposable
         _channel.Send(segment, endPoint);
     }
 
-    public void Ack(byte ack, IPEndPoint endPoint)
-    {
-        Ack packet = Packets.NewAck(_sequence, ack, Packets.Options.Reliable);
-        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
-        _unreliablePacketHandler.SendRaw(segment, endPoint);
-    }
-
     public void Ack(IPEndPoint endPoint)
     {
-        Ack(_ack, endPoint);
-    }
-
-    public void Ack(PacketEvent<byte[]> e)
-    {
-        //  TODO acks should be combined with outgoing sends when possible
-        byte ack = e.Header.Sequence;
-        //  TODO implement sliding window
-        _ack = ack;
-
-        Ack(ack, e.EndPoint);
+        InternalAck(_ack, endPoint);
     }
 
     public void Nul(IPEndPoint endPoint)
@@ -142,6 +128,27 @@ internal class ReliablePacketHandler : IDisposable
         SendRaw(segment, endPoint);
 
         _metrics.PacketSent(Packets.Controls.Nul, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
+    }
+
+    private void InternalAck(byte ack, IPEndPoint endPoint)
+    {
+        Ack packet = Packets.NewAck(_sequence, ack, Packets.Options.Reliable);
+        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
+        _unreliablePacketHandler.SendRaw(segment, endPoint);
+    }
+
+    private void AccumulateAck(byte ack, IPEndPoint endPoint)
+    {
+        //  TODO acks should be combined with outgoing sends when possible
+        //  TODO implement sliding window
+        _ack = ack;
+
+        _cumulativeAcks++;
+        if (_syn.MaxCumulativeAcks == 0 || _cumulativeAcks >= _syn.MaxCumulativeAcks)
+        {
+            _cumulativeAcks = 0;
+            InternalAck(ack, endPoint);
+        }
     }
 
     private bool SupportsOptions(Packets.Options options)
@@ -192,7 +199,7 @@ internal class ReliablePacketHandler : IDisposable
             return;
         }
 
-        Ack(e);
+        AccumulateAck(e.Header.Sequence, e.EndPoint);
 
         DataRecv?.Invoke(this, e);
     }
@@ -204,6 +211,18 @@ internal class ReliablePacketHandler : IDisposable
             return;
         }
 
+        AccumulateAck(e.Header.Sequence, e.EndPoint);
+
         RstRecv?.Invoke(this, e);
+    }
+
+    private void OnNulRecv(object sender, PacketEvent<Nul> e)
+    {
+        if (!SupportsOptions((Packets.Options)e.Header.Options))
+        {
+            return;
+        }
+
+        AccumulateAck(e.Header.Sequence, e.EndPoint);
     }
 }
