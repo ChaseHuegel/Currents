@@ -134,6 +134,16 @@ internal class ReliablePacketHandler : IDisposable
         Ack(ack, e.EndPoint);
     }
 
+    public void Nul(IPEndPoint endPoint)
+    {
+        var packet = Packets.NewNul(_sequence, _ack, Packets.Options.Reliable);
+        var segment = packet.SerializePooledSegment();
+
+        SendRaw(segment, endPoint);
+
+        _metrics.PacketSent(Packets.Controls.Nul, reliable: true, ordered: false, sequenced: false, bytes: segment.Count, _channel.LocalEndPoint, endPoint);
+    }
+
     private bool SupportsOptions(Packets.Options options)
     {
         const Packets.Options requiredOptionsMask = ~Packets.Options.Reliable;

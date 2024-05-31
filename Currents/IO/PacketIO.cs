@@ -28,6 +28,7 @@ internal class PacketIO : IDisposable
     private readonly UnreliablePacketHandler _unreliablePacketHandler;
     private readonly OrderedPacketHandler _orderedPacketHandler;
     private readonly System.Timers.Timer _cumulativeAckTimer = new();
+    private readonly System.Timers.Timer _nullTimer = new();
 
     public PacketIO(Connection connection, Channel channel, PacketConsumer consumer, int bufferSize, ILogger logger, ConnectorMetrics metrics)
     {
@@ -42,7 +43,8 @@ internal class PacketIO : IDisposable
         _orderedPacketHandler = new OrderedPacketHandler(_unreliablePacketHandler, _syn, channel, consumer, metrics);
 
         _cumulativeAckTimer.Elapsed += OnCumulativeAckElapsed;
-        _cumulativeAckTimer.Interval = _syn.CumulativeAckTimeout;
+        _nullTimer.Elapsed += OnNullElapsed;
+        UpdateTimerSettings(_syn);
     }
 
     public void Dispose()
@@ -76,6 +78,10 @@ internal class PacketIO : IDisposable
         _orderedPacketHandler.StartListening();
 
         _cumulativeAckTimer.Start();
+        if (_syn.NullPacketTimeout > 0)
+        {
+            _nullTimer.Start();
+        }
     }
 
     public void StopListening()
@@ -95,6 +101,7 @@ internal class PacketIO : IDisposable
         _orderedPacketHandler.StopListening();
 
         _cumulativeAckTimer.Stop();
+        _nullTimer.Stop();
     }
 
     public void MergeSyn(Syn syn)
@@ -103,40 +110,60 @@ internal class PacketIO : IDisposable
         _syn = syn;
         _reliablePacketHandler.MergeSyn(syn);
         _orderedPacketHandler.MergeSyn(syn);
-
-        _cumulativeAckTimer.Interval = _syn.CumulativeAckTimeout;
+        UpdateTimerSettings(syn);
     }
 
     public void SendReliable(byte[] data, IPEndPoint endPoint)
     {
         ValidateSendAndThrow(data);
         _reliablePacketHandler.SendData(data, endPoint);
-        ResetCumulativeAck();
+        ResetCumulativeAckTimer();
+        ResetNullTimer();
     }
 
     public void SendOrdered(byte[] data, IPEndPoint endPoint)
     {
         ValidateSendAndThrow(data);
         _orderedPacketHandler.SendData(data, endPoint);
-        ResetCumulativeAck();
+        ResetCumulativeAckTimer();
+        ResetNullTimer();
     }
 
     public void Syn(Syn syn, IPEndPoint endPoint)
     {
         _reliablePacketHandler.SendSyn(syn, endPoint);
-        ResetCumulativeAck();
+        ResetCumulativeAckTimer();
     }
 
     public void Rst(IPEndPoint endPoint)
     {
         _unreliablePacketHandler.SendRst(endPoint);
-        ResetCumulativeAck();
+        ResetCumulativeAckTimer();
     }
 
-    private void ResetCumulativeAck()
+    private void ResetCumulativeAckTimer()
     {
         _cumulativeAckTimer.Stop();
         _cumulativeAckTimer.Start();
+    }
+
+    private void ResetNullTimer()
+    {
+        _nullTimer.Stop();
+        if (_syn.NullPacketTimeout > 0)
+        {
+            _nullTimer.Start();
+        }
+    }
+
+    private void UpdateTimerSettings(Syn syn)
+    {
+        _cumulativeAckTimer.Interval = _syn.CumulativeAckTimeout;
+
+        if (_syn.NullPacketTimeout > 0)
+        {
+            _nullTimer.Interval = _syn.NullPacketTimeout;
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -178,5 +205,10 @@ internal class PacketIO : IDisposable
         //  TODO only ack if the current offset is out of sync with the current ack
         _reliablePacketHandler.Ack(_endPoint);
         _orderedPacketHandler.Ack(_endPoint);
+    }
+
+    private void OnNullElapsed(object sender, ElapsedEventArgs e)
+    {
+        _reliablePacketHandler.Nul(_endPoint);
     }
 }
