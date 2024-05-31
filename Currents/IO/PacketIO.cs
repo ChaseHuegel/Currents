@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.CompilerServices;
 using Currents.Events;
 using Currents.Metrics;
 using Currents.Protocol;
@@ -97,11 +98,13 @@ internal class PacketIO : IDisposable
 
     public void SendReliable(byte[] data, IPEndPoint endPoint)
     {
+        ValidateSendAndThrow(data);
         _reliablePacketHandler.SendData(data, endPoint);
     }
 
     public void SendOrdered(byte[] data, IPEndPoint endPoint)
     {
+        ValidateSendAndThrow(data);
         _orderedPacketHandler.SendData(data, endPoint);
     }
 
@@ -138,5 +141,14 @@ internal class PacketIO : IDisposable
     private void OnRetransmissionExpired(object sender, EndPointEventArgs e)
     {
         RetransmissionExpired?.Invoke(this, e);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ValidateSendAndThrow(byte[] data)
+    {
+        if (data.Length > _syn.MaxPacketSize - _syn.Header.GetSize())
+        {
+            throw new CrntException($"Tried to send a packet larger than allowed by the peer's {nameof(Protocol.Syn.MaxPacketSize)} (size: {data.Length} max: {_syn.MaxPacketSize}).");
+        }
     }
 }

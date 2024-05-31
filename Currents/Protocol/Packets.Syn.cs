@@ -16,6 +16,7 @@ internal static partial class Packets
             RetransmissionTimeout = 100,
             MaxRetransmissions = 3,
             MaxOutstandingPackets = 10,
+            MaxPacketSize = ushort.MaxValue
         };
     }
 
