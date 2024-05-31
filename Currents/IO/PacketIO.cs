@@ -1,5 +1,6 @@
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Timers;
 using Currents.Events;
 using Currents.Metrics;
 using Currents.Protocol;
@@ -20,17 +21,18 @@ internal class PacketIO : IDisposable
     private volatile bool _disposed;
 
     private Syn _syn;
-    private IPEndPoint _localEndPoint;
+    private IPEndPoint _endPoint;
     private readonly Channel _channel;
     private readonly CircularBuffer<byte[]> _recvBuffer;
     private readonly ReliablePacketHandler _reliablePacketHandler;
     private readonly UnreliablePacketHandler _unreliablePacketHandler;
     private readonly OrderedPacketHandler _orderedPacketHandler;
+    private readonly System.Timers.Timer _cumulativeAckTimer = new();
 
     public PacketIO(Connection connection, Channel channel, PacketConsumer consumer, int bufferSize, ILogger logger, ConnectorMetrics metrics)
     {
         _syn = connection.Syn;
-        _localEndPoint = connection.EndPoint;
+        _endPoint = connection.EndPoint;
         _channel = channel;
 
         _recvBuffer = new CircularBuffer<byte[]>(bufferSize);
@@ -38,6 +40,9 @@ internal class PacketIO : IDisposable
         _unreliablePacketHandler = new UnreliablePacketHandler(channel, consumer, metrics);
         _reliablePacketHandler = new ReliablePacketHandler(_unreliablePacketHandler, _syn, channel, consumer, metrics);
         _orderedPacketHandler = new OrderedPacketHandler(_unreliablePacketHandler, _syn, channel, consumer, metrics);
+
+        _cumulativeAckTimer.Elapsed += OnCumulativeAckElapsed;
+        _cumulativeAckTimer.Interval = _syn.CumulativeAckTimeout;
     }
 
     public void Dispose()
@@ -69,6 +74,8 @@ internal class PacketIO : IDisposable
         _orderedPacketHandler.RstRecv += OnRstRcv;
         _orderedPacketHandler.DataRecv += OnDataRecv;
         _orderedPacketHandler.StartListening();
+
+        _cumulativeAckTimer.Start();
     }
 
     public void StopListening()
@@ -86,6 +93,8 @@ internal class PacketIO : IDisposable
         _orderedPacketHandler.RstRecv -= OnRstRcv;
         _orderedPacketHandler.DataRecv -= OnDataRecv;
         _orderedPacketHandler.StopListening();
+
+        _cumulativeAckTimer.Stop();
     }
 
     public void MergeSyn(Syn syn)
@@ -94,33 +103,54 @@ internal class PacketIO : IDisposable
         _syn = syn;
         _reliablePacketHandler.MergeSyn(syn);
         _orderedPacketHandler.MergeSyn(syn);
+
+        _cumulativeAckTimer.Interval = _syn.CumulativeAckTimeout;
     }
 
     public void SendReliable(byte[] data, IPEndPoint endPoint)
     {
         ValidateSendAndThrow(data);
         _reliablePacketHandler.SendData(data, endPoint);
+        ResetCumulativeAck();
     }
 
     public void SendOrdered(byte[] data, IPEndPoint endPoint)
     {
         ValidateSendAndThrow(data);
         _orderedPacketHandler.SendData(data, endPoint);
+        ResetCumulativeAck();
     }
 
     public void Syn(Syn syn, IPEndPoint endPoint)
     {
         _reliablePacketHandler.SendSyn(syn, endPoint);
+        ResetCumulativeAck();
     }
 
     public void Rst(IPEndPoint endPoint)
     {
         _unreliablePacketHandler.SendRst(endPoint);
+        ResetCumulativeAck();
+    }
+
+    private void ResetCumulativeAck()
+    {
+        _cumulativeAckTimer.Stop();
+        _cumulativeAckTimer.Start();
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ValidateSendAndThrow(byte[] data)
+    {
+        if (data.Length > _syn.MaxPacketSize - _syn.Header.GetSize())
+        {
+            throw new CrntException($"Tried to send a packet larger than allowed by the peer's {nameof(Protocol.Syn.MaxPacketSize)} (size: {data.Length} max: {_syn.MaxPacketSize}).");
+        }
     }
 
     private void OnDataRecv(object sender, PacketEvent<byte[]> e)
     {
-        if (!e.EndPoint.Equals(_localEndPoint))
+        if (!e.EndPoint.Equals(_endPoint))
         {
             return;
         }
@@ -130,7 +160,7 @@ internal class PacketIO : IDisposable
 
     private void OnRstRcv(object sender, PacketEvent<Rst> e)
     {
-        if (!e.EndPoint.Equals(_localEndPoint))
+        if (!e.EndPoint.Equals(_endPoint))
         {
             return;
         }
@@ -143,12 +173,10 @@ internal class PacketIO : IDisposable
         RetransmissionExpired?.Invoke(this, e);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ValidateSendAndThrow(byte[] data)
+    private void OnCumulativeAckElapsed(object sender, ElapsedEventArgs e)
     {
-        if (data.Length > _syn.MaxPacketSize - _syn.Header.GetSize())
-        {
-            throw new CrntException($"Tried to send a packet larger than allowed by the peer's {nameof(Protocol.Syn.MaxPacketSize)} (size: {data.Length} max: {_syn.MaxPacketSize}).");
-        }
+        //  TODO only ack if the current offset is out of sync with the current ack
+        _reliablePacketHandler.Ack(_endPoint);
+        _orderedPacketHandler.Ack(_endPoint);
     }
 }

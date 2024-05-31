@@ -112,19 +112,26 @@ internal class ReliablePacketHandler : IDisposable
         _channel.Send(segment, endPoint);
     }
 
+    public void Ack(byte ack, IPEndPoint endPoint)
+    {
+        Ack packet = Packets.NewAck(_sequence, ack, Packets.Options.Reliable);
+        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
+        _unreliablePacketHandler.SendRaw(segment, endPoint);
+    }
+
+    public void Ack(IPEndPoint endPoint)
+    {
+        Ack(_ack, endPoint);
+    }
+
     public void Ack(PacketEvent<byte[]> e)
     {
         //  TODO acks should be combined with outgoing sends when possible
         byte ack = e.Header.Sequence;
-        if (ack < _ack)
-        {
-            //  TODO implement sliding window
-            _ack = ack;
-        }
+        //  TODO implement sliding window
+        _ack = ack;
 
-        Ack packet = Packets.NewAck(_sequence, ack, Packets.Options.Reliable);
-        PooledArraySegment<byte> segment = packet.SerializePooledSegment();
-        _unreliablePacketHandler.SendRaw(segment, e.EndPoint);
+        Ack(ack, e.EndPoint);
     }
 
     private bool SupportsOptions(Packets.Options options)

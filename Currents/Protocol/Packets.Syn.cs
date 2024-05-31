@@ -13,10 +13,11 @@ internal static partial class Packets
                 Options = (byte)Options.Reliable,
             },
             Version = 1,
-            RetransmissionTimeout = 100,
+            RetransmissionTimeout = 200,
             MaxRetransmissions = 3,
             MaxOutstandingPackets = 10,
-            MaxPacketSize = ushort.MaxValue
+            MaxPacketSize = ushort.MaxValue,
+            CumulativeAckTimeout = 100,
         };
     }
 

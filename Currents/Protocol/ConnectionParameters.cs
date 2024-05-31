@@ -35,7 +35,7 @@ public struct ConnectionParameters
 
     /// <summary>
     /// The timeout value for retransmission of unacknowledged packets.  This value
-    /// is specified in milliseconds. The valid range is 100 to 65536.  This is a
+    /// is specified in milliseconds. The valid range is 100 to 65535.  This is a
     /// negotiable parameter, both peers must agree on the same value for this
     /// parameter.
     /// </summary>
@@ -44,7 +44,7 @@ public struct ConnectionParameters
     /// <summary>
     /// The timeout value for sending an acknowledgment segment if another segment
     /// is not sent.  This value is specified in milliseconds. The valid range is
-    /// 100 to 65536.  This is a negotiable parameter, both peers must agree on the
+    /// 100 to 65535.  This is a negotiable parameter, both peers must agree on the
     /// same value for this parameter.  In addition, this parameter should be
     /// smaller than the Retransmission Timeout Value.
     /// </summary>
@@ -53,7 +53,7 @@ public struct ConnectionParameters
     /// <summary>
     /// The timeout value for sending a null segment if a data segment has not
     /// been sent.  Thus, the null segment acts as a keep-alive mechanism.
-    /// This value is specified in milliseconds.  The valid range is 0 to 65536.
+    /// This value is specified in milliseconds.  The valid range is 0 to 65535.
     /// A value of 0 disables null segments. This is a negotiable parameter, both
     /// peers must agree on the same value for this parameter.
     /// </summary>
@@ -110,13 +110,25 @@ public struct ConnectionParameters
         if (RetransmissionTimeout < 100)
         {
             exceptions ??= [];
-            exceptions.Add(new ArgumentException("Retransmission timeouts must range between 100ms and 65535ms", nameof(RetransmissionTimeout)));
+            exceptions.Add(new ArgumentException($"Retransmission timeout ({RetransmissionTimeout}) must range between 100ms and 65535ms.", nameof(RetransmissionTimeout)));
+        }
+
+        if (CumulativeAckTimeout < 100)
+        {
+            exceptions ??= [];
+            exceptions.Add(new ArgumentException($"Cumulative ack timeout ({CumulativeAckTimeout}) must range between 100ms and 65535ms.", nameof(CumulativeAckTimeout)));
+        }
+
+        if (CumulativeAckTimeout >= RetransmissionTimeout)
+        {
+            exceptions ??= [];
+            exceptions.Add(new ArgumentException($"Cumulative ack timeout ({CumulativeAckTimeout}) must be less than the retransmission timeout ({RetransmissionTimeout}).", nameof(CumulativeAckTimeout)));
         }
 
         if (MaxOutstandingPackets < 1)
         {
             exceptions ??= [];
-            exceptions.Add(new ArgumentException("Max outstanding packets must range between 1 and 255.", nameof(RetransmissionTimeout)));
+            exceptions.Add(new ArgumentException($"Max outstanding packets ({MaxOutstandingPackets}) must range between 1 and 255.", nameof(MaxOutstandingPackets)));
         }
 
         if (exceptions?.Count > 0)
