@@ -88,17 +88,6 @@ public struct ConnectionParameters
     public byte MaxOutOfSequencePackets;
 
     /// <summary>
-    /// The maximum number of consecutive auto reset that will performed before
-    /// a connection is reset.  The valid range for this value is 0 to 255.  A
-    /// value of 0 indicates that an auto reset will not be attempted, the
-    /// connection will be reset immediately if an auto reset condition occurs.
-    /// This is a negotiable parameter, both peers must agree on the same value
-    /// for this parameter.  The consecutive auto reset counter is cleared once
-    /// a connection is opened.
-    /// </summary>
-    public byte MaxAutoResets;
-
-    /// <summary>
     /// Optional security parameters for establishing the connection.
     /// </summary>
     public Sec? Security;

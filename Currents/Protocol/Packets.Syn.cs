@@ -40,7 +40,6 @@ internal static partial class Packets
             MaxRetransmissions = connectionParameters.MaxRetransmissions,
             MaxCumulativeAcks = connectionParameters.MaxCumulativeAcks,
             MaxOutOfSequencePackets = connectionParameters.MaxOutOfSequencePackets,
-            MaxAutoResets = connectionParameters.MaxAutoResets,
             Security = connectionParameters.Security
         };
     }

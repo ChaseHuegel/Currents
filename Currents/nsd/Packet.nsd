@@ -30,7 +30,6 @@ message Syn
     byte MaxRetransmissions         = 7;
     byte MaxCumulativeAcks          = 8;
     byte MaxOutOfSequencePackets    = 9;
-    byte MaxAutoResets              = 10;
     Sec? Security                   = 11;
 }
 
